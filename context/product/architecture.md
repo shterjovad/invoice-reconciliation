@@ -63,11 +63,16 @@ the decision._
   rebuilds from files needs neither._
 - **Money Representation:** **integer cents in `INTEGER` columns.** No `REAL` column for money can
   exist in the schema.
-- **Money Conversion — the most important rule in this document.** Extraction returns **dollar
-  strings**, such as `"24.00"` and `"120.00"`. **One module** converts them to cents. It uses
-  `Decimal`, or a string split on the decimal point. It **never uses `float(x) * 100`**, which
-  rounds silently. This converter has its own unit tests. The tests cover trailing zeros, missing
-  decimal places and values with no decimal point.
+- **Money Conversion — the most important rule in this document.** Extraction returns money as
+  **dollar strings**, such as `"24.00"` and `"120.00"`. **The model does not do this reliably.**
+  Three identical test calls on the same image returned JSON numbers once (`24.0`) and strings
+  twice. The project therefore defends at both ends: the response schema types the money fields as
+  strings, and the converter accepts a string or a number.
+  **One module** converts to cents. For a numeric input it first formats the value as text with two
+  decimal places, then splits on the decimal point and parses each half as an integer. It **never
+  uses `float(x) * 100`**, which rounds silently. This converter has its own unit tests. They cover
+  trailing zeros, missing decimal places, values with no decimal point, negative values,
+  over-precision, and **the numeric forms `24.0`, `120.0` and `5`**.
 - **Core Entities:** purchase orders, receipts, invoices, extracted values and reconciliation
   results.
 - **Changeable Extraction Records:** the extracted values live **apart from the reconciliation
@@ -95,8 +100,9 @@ the decision._
 
 ## 4. External Services and APIs
 
-- **Model Provider:** **AWS Bedrock**, region **us-east-1**, through the Bedrock client in the
-  `anthropic` Python SDK.
+- **Model Provider:** **AWS Bedrock**, region **us-east-1**, through the
+  **`AnthropicBedrockMantle(aws_region="us-east-1")`** client in the `anthropic` Python SDK. This is
+  **not** `AnthropicBedrock`, which is the legacy `InvokeModel` path.
   _Alternatives: the Anthropic API needs a committed API key, which the secret policy of this
   project discourages. Local OCR such as Tesseract breaks across the two layouts, and the images
   carry no text layer._
