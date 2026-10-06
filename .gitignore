@@ -1,0 +1,21 @@
+# Secrets — never commit. Variable names only go in ai-workflow/.env.example
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local application state (regenerate from fixtures)
+*.sqlite
+*.sqlite3
+*.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
