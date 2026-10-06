@@ -58,7 +58,7 @@ src/invoice_reconciliation/
 │   ├── prompt.py              the one prompt constant
 │   ├── schema.py              the seven-field JSON Schema
 │   ├── parser.py              raw response → ExtractedFields; pure, replay-exercised
-│   └── cache.py               ResponseCache, keyed by image content hash
+│   └── cache.py               ResponseCache, named by file_id, verified by image hash
 ├── reconciliation/
 │   ├── matcher.py             find PO + receipt; find earlier duplicate
 │   ├── rules.py               THE rules engine; pure function
@@ -195,27 +195,50 @@ parser tests exercise both.
    `24.0` that the model returns about one call in three, and mark a good invoice `failed`. One rule
    for what counts as a valid amount, in one module, prevents the two from drifting apart.
 
-**Cache key: a SHA-256 hash of the image bytes**, not the `file_id`. A content hash makes the cache
-self-verifying. If anyone regenerates a fixture image, the hash changes and the entry misses. The
-pipeline then calls the model, or in replay mode fails loudly. Keying on `file_id` would serve a
-stale response for changed content, which is the exact failure a replay must not hide. The
-`file_id` still appears inside the entry for readability.
+**Cache files are named by `file_id`, and each entry records the image hash inside.** The lookup
+reads `<cache_dir>/<file_id>.json`, so the directory stays readable:
+
+```
+tests/fixtures/bedrock_responses/
+├── clean.json
+├── wrong-price.json
+├── duplicate.json
+└── missing-reference.json
+```
+
+**The loader compares the stored `image_sha256` with the hash of the image it is about to process.**
+The two parts then do different jobs. The name makes the directory legible to a reviewer, who can
+see at a glance that every fixture has a saved response. The recorded hash keeps the entry
+self-verifying.
+
+On a mismatch — someone regenerated the image, and the saved response no longer describes it — the
+loader **warns and names both hashes**. In replay mode it then **fails for that invoice** rather than
+returning a response for different content. A silent stale read is the one failure a replay must
+never hide.
+
+A pure content-hash filename would also be self-verifying, but it produces a directory of opaque
+names. A bare `file_id` with no recorded hash would be readable and unsafe. This keeps both
+properties.
 
 **Cache entry** holds a metadata envelope plus `raw_response`, which is the unmodified response from
-the SDK. The parser reads only `raw_response`, so a file on disk is indistinguishable from a live
-response. These files are **committed**. They are fixture data, not local state.
+the SDK. The envelope carries `file_id`, `image_sha256`, `model_id` and `captured_at`. The parser
+reads only `raw_response`, so a file on disk is indistinguishable from a live response. These files
+are **committed**. They are fixture data, not local state.
 
 **The replay switch** wraps the network call only:
 
 ```
-cached = cache.get(image_bytes)
+cached = cache.get(file_id, image_bytes)   # warns if stored hash != hash(image_bytes)
 if use_cache:          # --from-cache
-    raw = cached.raw_response        # CacheMissError if absent
+    raw = cached.raw_response        # CacheMissError if absent or hash mismatch
 else:
     raw = client.messages.create(...)
-    cache.put(...)
+    cache.put(file_id, image_bytes, model_id, raw)
 fields = parser.parse(raw)           # the SAME call on both paths
 ```
+
+`cache.get` takes both the name and the bytes: the name finds the file, the bytes verify it still
+describes that image.
 
 The Bedrock client is built lazily, inside the live branch. A replay run therefore never touches the
 credential chain, and a reviewer with no AWS access can run the whole flow.
@@ -338,7 +361,7 @@ reports the model that truly served it.
 | **The seed check passes on a normalised shape** and hides a real difference. | Compare the exact per-status key sets. Test the comparison itself against a deliberately wrong record. |
 | **The model invents a purchase-order reference** for `missing-reference`, which destroys the `unresolved` case. | The schema types `po_id` as nullable and required. The prompt forbids guessing. A unit test asserts `po_id is None` for that fixture from its committed response. |
 | **An expired session blocks the assessor.** | Replay mode runs the full flow from committed responses with no credentials. This is a required deliverable, not a convenience. |
-| **A stale cache serves a wrong response** after someone regenerates a fixture. | The cache key is a content hash. A changed image misses the cache and fails loudly in replay mode. |
+| **A stale cache serves a wrong response** after someone regenerates a fixture. | Each entry records the hash of the image it came from. The loader compares it with the image in hand, warns on a mismatch, and fails that invoice in replay mode rather than returning a response for different content. |
 | **One bad invoice stops the batch.** | Per-invoice `try`/`except` scoped to extraction errors and SDK errors, never a bare `except Exception`. A failed invoice gets `status = failed` and no amounts. |
 | **The 8-hour budget.** The brief caps the whole exercise, including data preparation and documents. | Build in roadmap order: rules proven against prepared data, then extraction, then the web view. The rules engine is testable without any model call. |
 | **The web view and the batch drift apart.** | One `pipeline.recalculate_one` used by both. The rules function performs no input and output, so it cannot grow a second path. |
@@ -357,7 +380,8 @@ reports the model that truly served it.
   excluding duplicates, unresolved and negatives.
 - `test_parser.py` — valid responses for both layouts from committed fixtures; `po_id is None` for
   `missing-reference`; malformed, incomplete and wrong-typed responses each raising the right error.
-- `test_cache.py` — hit, miss, and a changed image producing a miss.
+- `test_cache.py` — a hit; a miss when no file exists; **a changed image against a stored entry
+  producing a warning and, in replay mode, a failure for that invoice rather than a stale response.**
 
 **Integration tests:**
 
@@ -376,19 +400,37 @@ apart from any output of the platform.
 
 ---
 
-## 5. Assumptions Recorded
+## 5. Decisions and Assumptions
 
-The user confirmed the package layout decisions below in the architecture step. These remain open
-for challenge:
+### Confirmed by the user
 
-- **Assumption:** the package is `src/invoice_reconciliation/`. The three specialist designs
-  proposed different names; this value reconciles them.
-- **Assumption:** `money.py` raises on over-precision such as `"24.999"` rather than truncating.
-- **Assumption:** `money.py` accepts negative amounts, because the underbill fixture needs them.
-- **Measured, not assumed:** the model returns money fields as JSON numbers in about one call of
-  three. The schema constrains them to strings and the converter accepts both. Three numeric rows in
-  the unit table hold this.
-- **Measured, not assumed:** the client class is `AnthropicBedrockMantle`, not `AnthropicBedrock`.
+- **The package is `src/invoice_reconciliation/`.** The three specialist designs proposed three
+  different names. This one settles it.
+- **`money.py` raises on over-precision** such as `"24.999"`. It does not truncate and it does not
+  round. Silent truncation is itself a money bug, and a failed invoice is visible where a wrong cent
+  is not.
+- **The cache file is named by `file_id`, and the entry records the image hash.** The loader warns
+  on a mismatch and fails that invoice in replay mode. This keeps the directory readable and the
+  entry self-verifying.
+- **The seed check and the batch report separate exit signals.** "The model failed" and "the rules
+  are wrong" are different problems. One exit code must not merge them.
+
+### Measured, not assumed
+
+- **The model returns money fields as JSON numbers in about one call of three.** The schema
+  constrains them to strings, and the converter accepts both. Three numeric rows in the unit table
+  hold this.
+- **The client class is `AnthropicBedrockMantle`**, not `AnthropicBedrock`.
+- **The `us.` inference-profile prefix is required** on the model ID.
+
+### Still assumptions, open to challenge
+
+- `money.py` accepts negative amounts, because the underbill fixture needs them.
+- A quantity mismatch forces `discrepant` even when the amounts agree. The functional specification
+  settles this, and a new fixture tests it.
+- A reviewer's edit to a draft note does not trigger a recalculation. Only a correction to an
+  extracted value does.
+- Extraction runs serially. Six to eight invoices do not justify concurrency.
 - **Assumption:** a quantity mismatch forces `discrepant` even when the amounts agree. The
   functional specification settles this, and a new fixture tests it.
 - **Assumption:** the reviewer's edit to a draft note does not trigger a recalculation. Only a
