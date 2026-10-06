@@ -124,14 +124,26 @@ def insert_invoice(
     layout: str,
     received_at: str,
     extraction_source: str,
+    extraction_failed: bool = False,
 ) -> int:
-    """Insert one invoice row and return its generated ``invoice_id``."""
+    """Insert one invoice row and return its generated ``invoice_id``.
+
+    ``extraction_failed`` records whether this invoice's extraction raised
+    or produced no usable response (``False`` for the prepared-record seed
+    path, and for a live/cache call that succeeded). ``pipeline.
+    recalculate_one`` reads it back to classify the invoice ``failed``
+    instead of ``unresolved`` — see the column's docstring in
+    ``db/schema.py``.
+    """
     cursor = conn.execute(
         """
-        INSERT INTO invoices (file_id, image_path, layout, received_at, extraction_source)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO invoices (
+            file_id, image_path, layout, received_at, extraction_source,
+            extraction_failed
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (file_id, image_path, layout, received_at, extraction_source),
+        (file_id, image_path, layout, received_at, extraction_source, int(extraction_failed)),
     )
     return int(cursor.lastrowid)
 
@@ -142,7 +154,8 @@ def get_invoice_by_file_id(
     """Look up an invoice by its unique ``file_id``."""
     cursor = conn.execute(
         """
-        SELECT invoice_id, file_id, image_path, layout, received_at, extraction_source
+        SELECT invoice_id, file_id, image_path, layout, received_at,
+               extraction_source, extraction_failed
         FROM invoices
         WHERE file_id = ?
         """,
@@ -154,10 +167,39 @@ def get_invoice_by_file_id(
 def list_invoices(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Return all invoices."""
     cursor = conn.execute(
-        "SELECT invoice_id, file_id, image_path, layout, received_at, extraction_source "
-        "FROM invoices"
+        "SELECT invoice_id, file_id, image_path, layout, received_at, "
+        "extraction_source, extraction_failed FROM invoices"
     )
     return cursor.fetchall()
+
+
+def mark_extraction_failed(conn: sqlite3.Connection, *, invoice_id: int) -> None:
+    """Flag an invoice's extraction as failed, after its row already exists.
+
+    ``ingest_invoices_via_extraction`` inserts the ``invoices`` row before
+    it knows whether the image file exists or the model call will succeed
+    (so a bad invoice still gets a row other tables can reference). This is
+    the one call that records failure once it is known, rather than
+    requiring the caller to know it up front.
+    """
+    conn.execute(
+        "UPDATE invoices SET extraction_failed = 1 WHERE invoice_id = ?",
+        (invoice_id,),
+    )
+
+
+def get_invoice(conn: sqlite3.Connection, *, invoice_id: int) -> sqlite3.Row | None:
+    """Look up an invoice by its ``invoice_id``, including ``extraction_failed``."""
+    cursor = conn.execute(
+        """
+        SELECT invoice_id, file_id, image_path, layout, received_at,
+               extraction_source, extraction_failed
+        FROM invoices
+        WHERE invoice_id = ?
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchone()
 
 
 # ---------------------------------------------------------------------------

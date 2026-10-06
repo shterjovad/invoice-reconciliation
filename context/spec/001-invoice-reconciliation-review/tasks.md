@@ -71,26 +71,24 @@ tests — those are the regression suite.
   - [x] Replace the prepared-record ingest with the extraction path in `pipeline.py`. The values now come from the model and flow into `extracted_fields.original_value` and `current_value`. **[Agent: python-backend]**
   - [x] Verify: run one live extraction against `tasks/invoices/images/wrong-price.png` and report the seven real values returned. Confirm the money fields arrive as strings and that `po_id` is `null` for `missing-reference.png`. Record the token counts. Delete any temporary output. **[Agent: bedrock-extraction]**
 
-- [ ] **Slice 7: Replay saved responses without credentials**
+- [x] **Slice 7: Replay saved responses without credentials**
 
-  > **Carried over from Slice 6, found 2026-10-06.** Under `--extract`, an invoice whose image is
-  > missing (or whose extraction raises) writes zero `extracted_fields` rows. The matcher then reads
-  > "no `po_id`" and the rules engine classifies it **`unresolved`**, which is the status for an
-  > invoice that was read and carries no purchase-order reference. The spec reserves **`failed`** for
-  > an invoice that could not be processed. Measured: `missing-reference` ends `unresolved` with 7
-  > fields (correct), while `quantity-overbill` and `undercharge` end `unresolved` with 0 fields
-  > (should be `failed`). Rendering the two images in this slice removes the symptom for these
-  > fixtures, but a genuine extraction failure would still be mislabelled — confirm the distinction
-  > holds once images exist, and record it in the ambiguities list if it does not.
+  > **Carried over issue from Slice 6 — RESOLVED in this slice.** A failed extraction was
+  > classified `unresolved` (the status for "read it, no purchase-order reference") instead of
+  > `failed`. Fixed by recording `invoices.extraction_failed` and passing it to the existing
+  > `extraction_failed` parameter of `rules.reconcile`; the classification logic itself did not
+  > change. Measured after the fix: a missing cache entry gives `failed` with 0 fields and exit
+  > code 2, while `missing-reference` stays `unresolved` with 7 fields and still matches the
+  > oracle.
 
   > A required deliverable. After this slice a reviewer with no AWS access runs the whole flow.
 
-  - [ ] Write `extraction/cache.py`. Name each file by `file_id`, and record `image_sha256`, `model_id` and `captured_at` inside alongside the unmodified `raw_response`. `cache.get(file_id, image_bytes)` warns and fails that invoice when the stored hash does not describe the image in hand. **[Agent: bedrock-extraction]**
-  - [ ] Add `--from-cache` and `--refresh-cache` to the batch command. The replay branch wraps the network call only; `parser.parse` runs identically on both paths. **[Agent: python-backend]**
-  - [ ] Run the live extraction once over every invoice image and commit the saved responses under `tests/fixtures/bedrock_responses/`. These are fixture data, not local state. **[Agent: bedrock-extraction]**
-  - [ ] Render the two new invoice images from the Slice 5 records with `tasks/invoices/render_invoices.py`, then capture their responses into the cache as well. Use layout `b` for at least one, so both layouts carry a new case. **[Agent: python-backend]**
-  - [ ] Write `tests/unit/test_cache.py`: a hit; a miss when no file exists; a changed image against a stored entry producing a warning and, in replay mode, a failure for that invoice rather than a stale response. **[Agent: testing-expert]**
-  - [ ] Verify: unset or remove AWS access for the duration of the check, run `python -m invoice_reconciliation.cli --reset-db --from-cache --seed-check`, and report the real output. Confirm the full batch completes with no credentials and the seed check passes. Restore the environment afterwards. Delete any scratch database. **[Agent: testing-expert]**
+  - [x] Write `extraction/cache.py`. Name each file by `file_id`, and record `image_sha256`, `model_id` and `captured_at` inside alongside the unmodified `raw_response`. `cache.get(file_id, image_bytes)` warns and fails that invoice when the stored hash does not describe the image in hand. **[Agent: bedrock-extraction]**
+  - [x] Add `--from-cache` and `--refresh-cache` to the batch command. The replay branch wraps the network call only; `parser.parse` runs identically on both paths. **[Agent: python-backend]**
+  - [x] Run the live extraction once over every invoice image and commit the saved responses under `tests/fixtures/bedrock_responses/`. These are fixture data, not local state. **[Agent: bedrock-extraction]**
+  - [x] Render the two new invoice images from the Slice 5 records with `tasks/invoices/render_invoices.py`, then capture their responses into the cache as well. Use layout `b` for at least one, so both layouts carry a new case. **[Agent: python-backend]**
+  - [x] Write `tests/unit/test_cache.py`: a hit; a miss when no file exists; a changed image against a stored entry producing a warning and, in replay mode, a failure for that invoice rather than a stale response. **[Agent: testing-expert]**
+  - [x] Verify: unset or remove AWS access for the duration of the check, run `python -m invoice_reconciliation.cli --reset-db --from-cache --seed-check`, and report the real output. Confirm the full batch completes with no credentials and the seed check passes. Restore the environment afterwards. Delete any scratch database. **[Agent: testing-expert]**
 
 - [ ] **Slice 8: Continue the batch when one invoice fails**
 

@@ -33,12 +33,13 @@ Flag                  Purpose
 --log-level           Logging verbosity.
 ====================  ===========================================================
 
-``--from-cache`` and ``--refresh-cache`` are accepted now so the CLI's
-interface is stable for later slices, but the replay cache does not exist
-yet (it arrives in Slice 7). Passing either flag today does not silently
-do nothing and does not fake a cache: the CLI prints an explicit notice
-that the cache is not yet wired, and reconciles the seeded fixture values
-(or, if ``--extract`` was also passed, live-extracted values) instead.
+``--from-cache`` replays saved Bedrock responses from
+``tests/fixtures/bedrock_responses/`` through the same extraction-ingest
+path as ``--extract``: only the network call is swapped out for a cache
+read, so ``extraction.parser.parse`` and every downstream step run
+identically. It never touches the AWS credential chain. ``--refresh-cache``
+instead forces a live call for every invoice and overwrites the saved
+responses. The two flags are mutually exclusive.
 
 Exit codes
 ----------
@@ -138,20 +139,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--from-cache",
         action="store_true",
-        help=(
-            "Run extraction from saved responses. No credentials needed. "
-            "(Not yet wired — extraction arrives in a later slice; seeded "
-            "fixture values are used instead.)"
-        ),
+        help="Run extraction from saved responses. No credentials needed.",
     )
     parser.add_argument(
         "--refresh-cache",
         action="store_true",
-        help=(
-            "Force live calls and overwrite the saved responses. "
-            "(Not yet wired — extraction arrives in a later slice; seeded "
-            "fixture values are used instead.)"
-        ),
+        help="Force live calls and overwrite the saved responses.",
     )
     parser.add_argument(
         "--seed-check",
@@ -219,7 +212,8 @@ def _print_extraction_report(outcomes: list[ExtractionIngestOutcome]) -> None:
             print(
                 f"  [{outcome.file_id}] OK model={outcome.model_id} "
                 f"input_tokens={outcome.input_tokens} "
-                f"output_tokens={outcome.output_tokens}"
+                f"output_tokens={outcome.output_tokens} "
+                f"source={outcome.source}"
             )
         else:
             print(f"  [{outcome.file_id}] FAILED — {outcome.error}")
@@ -258,14 +252,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    if args.from_cache or args.refresh_cache:
-        flag = "--from-cache" if args.from_cache else "--refresh-cache"
-        print(
-            f"NOTE: {flag} was passed, but the replay cache is not yet "
-            "wired (it arrives in a later slice). Reconciling the "
-            + ("live-extracted" if args.extract else "seeded fixture")
-            + " values loaded by ingest instead."
-        )
+    if args.from_cache and args.refresh_cache:
+        parser.error("--from-cache and --refresh-cache are mutually exclusive")
 
     seed_path = args.ingest_dir / "seed.json"
     images_dir = args.ingest_dir / "images"
@@ -273,14 +261,19 @@ def main(argv: list[str] | None = None) -> int:
     if not expected_path.exists():
         expected_path = DEFAULT_EXPECTED_PATH
 
-    print(f"Ingesting fixtures from {args.ingest_dir} into {args.db_path} "
-          f"(reset_db={args.reset_db}, extract={args.extract})...")
+    print(
+        f"Ingesting fixtures from {args.ingest_dir} into {args.db_path} "
+        f"(reset_db={args.reset_db}, extract={args.extract}, "
+        f"from_cache={args.from_cache}, refresh_cache={args.refresh_cache})..."
+    )
     extraction_outcomes = run_ingest(
         db_path=args.db_path,
         seed_path=seed_path if seed_path.exists() else DEFAULT_SEED_PATH,
         images_dir=images_dir,
         reset_db=args.reset_db,
         use_extraction=args.extract,
+        use_cache=args.from_cache,
+        refresh_cache=args.refresh_cache,
     )
     if extraction_outcomes is not None:
         _print_extraction_report(extraction_outcomes)

@@ -1,0 +1,41 @@
+{
+  "file_id": "undercharge",
+  "image_sha256": "12affd3cab03f296c0c4ce66390f76ccb6fb713a1a10bcf61b375afa07e44aca",
+  "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "captured_at": "2026-10-06T19:28:11.153382+00:00",
+  "raw_response": {
+    "model": "claude-sonnet-4-5-20250929",
+    "id": "msg_bdrk_011CfmY1FJsPSXb9pGzzwL6v",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_bdrk_016po3dSoDhrK7FPTKSHs2TU",
+        "name": "record_invoice_fields",
+        "input": {
+          "invoice_number": "INV-5",
+          "supplier_id": "S1",
+          "po_id": "PO-2",
+          "sku": "CAB-1",
+          "quantity": 5,
+          "unit_price": "18.00",
+          "total": "90.00"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 2279,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 158
+    }
+  }
+}

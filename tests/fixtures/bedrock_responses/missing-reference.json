@@ -1,0 +1,41 @@
+{
+  "file_id": "missing-reference",
+  "image_sha256": "54675ae6c067b8b9c00825c43692f4e408de546aadf0cce04fa217f3b73be7ef",
+  "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  "captured_at": "2026-10-06T19:23:14.847132+00:00",
+  "raw_response": {
+    "model": "claude-sonnet-4-5-20250929",
+    "id": "msg_bdrk_011CfmXdR7NEavd8mK8HSGjH",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_bdrk_01FGN56H9QTYJkajbQuZYUWh",
+        "name": "record_invoice_fields",
+        "input": {
+          "invoice_number": "INV-3",
+          "supplier_id": "S1",
+          "po_id": null,
+          "sku": "CAB-1",
+          "quantity": 5,
+          "unit_price": "20.00",
+          "total": "100.00"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 2279,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 155
+    }
+  }
+}

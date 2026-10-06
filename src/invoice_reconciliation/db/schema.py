@@ -34,6 +34,17 @@ DDL_STATEMENTS: tuple[str, ...] = (
     )
     """,
     # One row per source invoice document.
+    #
+    # extraction_failed distinguishes "extraction did not run or did not
+    # return usable fields" from "extraction ran and genuinely found no
+    # purchase-order reference" (the missing-reference fixture). Both leave
+    # extracted_fields empty or po_id null, so the rules engine cannot tell
+    # them apart from field values alone -- this column is the one place
+    # that failure state is recorded, read by pipeline.recalculate_one to
+    # classify the invoice as 'failed' rather than 'unresolved'. 0 (false)
+    # for every invoice whose extraction succeeded, including the
+    # prepared-record (seeded) path, where extraction never ran at all but
+    # the values are known good.
     """
     CREATE TABLE IF NOT EXISTS invoices (
         invoice_id        INTEGER PRIMARY KEY,
@@ -41,7 +52,8 @@ DDL_STATEMENTS: tuple[str, ...] = (
         image_path        TEXT    NOT NULL,
         layout            TEXT    NOT NULL,
         received_at       TEXT    NOT NULL,
-        extraction_source TEXT    NOT NULL
+        extraction_source TEXT    NOT NULL,
+        extraction_failed INTEGER NOT NULL DEFAULT 0
     )
     """,
     # The seven extracted values, as TEXT (what the model returned, before

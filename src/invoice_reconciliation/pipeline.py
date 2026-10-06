@@ -46,16 +46,23 @@ def recalculate_one(conn: sqlite3.Connection, invoice_id: int) -> rules.Reconcil
 
     Steps:
 
-    1. Read the invoice row (for ``received_at``) and its current field
-       values.
+    1. Read the invoice row (for ``received_at`` and ``extraction_failed``)
+       and its current field values.
     2. Find the matching purchase order and receipt
        (``matcher.find_purchase_order_and_receipt``).
     3. Determine whether an earlier duplicate exists
        (``matcher.find_earlier_duplicate``), excluding this invoice itself.
-    4. Call ``rules.reconcile`` — the pure decision function. If it raises
-       ``MoneyFormatError`` (malformed money text already stored for this
-       invoice), the result is recorded as ``failed`` with no amounts
-       instead of propagating — one bad invoice must not abort the batch.
+    4. Call ``rules.reconcile`` — the pure decision function, passing
+       ``extraction_failed`` straight from the invoice row. This is what
+       tells a genuinely failed extraction (``failed``) apart from a
+       successful extraction that found no purchase-order reference
+       (``unresolved``, e.g. ``missing-reference``) — both leave
+       ``current_fields`` looking the same (``po_id`` absent or null), so
+       the distinction must come from this stored flag, not from the field
+       values. If ``rules.reconcile`` still raises ``MoneyFormatError``
+       (malformed money text already stored for this invoice), the result
+       is recorded as ``failed`` with no amounts instead of propagating —
+       one bad invoice must not abort the batch.
     5. Persist the result into ``reconciliation_results``, overwriting any
        existing row for this invoice.
 
@@ -65,13 +72,14 @@ def recalculate_one(conn: sqlite3.Connection, invoice_id: int) -> rules.Reconcil
 
     invoice_row = conn.execute(
         """
-        SELECT invoice_id, received_at
+        SELECT invoice_id, received_at, extraction_failed
         FROM invoices
         WHERE invoice_id = ?
         """,
         (invoice_id,),
     ).fetchone()
     received_at = invoice_row["received_at"]
+    extraction_failed = bool(invoice_row["extraction_failed"])
 
     match = matcher.find_purchase_order_and_receipt(conn, current_fields=current_fields)
 
@@ -93,6 +101,7 @@ def recalculate_one(conn: sqlite3.Connection, invoice_id: int) -> rules.Reconcil
             current_fields=current_fields,
             match=match,
             is_duplicate=is_duplicate,
+            extraction_failed=extraction_failed,
         )
     except MoneyFormatError:
         # Malformed money text already stored in the database (not a

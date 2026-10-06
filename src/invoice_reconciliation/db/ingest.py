@@ -47,6 +47,11 @@ from invoice_reconciliation.config import ModelConfig
 from invoice_reconciliation.db import repository
 from invoice_reconciliation.db.connection import connect
 from invoice_reconciliation.db.schema import init_db
+from invoice_reconciliation.extraction.cache import (
+    DEFAULT_CACHE_DIR,
+    CacheMissError,
+    ResponseCache,
+)
 from invoice_reconciliation.extraction.client import build_client, extract_invoice_fields
 from invoice_reconciliation.extraction.parser import ExtractionError, parse
 from invoice_reconciliation.money import MoneyFormatError, dollars_to_cents
@@ -57,11 +62,13 @@ DEFAULT_SEED_PATH = Path("tasks/invoices/seed.json")
 DEFAULT_DB_PATH = Path("invoice_reconciliation.sqlite")
 DEFAULT_IMAGES_DIR = Path("tasks/invoices/images")
 
-# extraction_source values. "live" marks a real model call; the seeded
-# path keeps its own distinct marker (see SEEDED_EXTRACTION_SOURCE below)
-# so a reviewer can always tell, per invoice, whether a value came from the
-# fixture or from the model.
+# extraction_source values. "live" marks a real model call; "cache" marks
+# a replayed one; the seeded path keeps its own distinct marker (see
+# SEEDED_EXTRACTION_SOURCE below) so a reviewer can always tell, per
+# invoice, whether a value came from the fixture, a live call, or a
+# replayed response.
 LIVE_EXTRACTION_SOURCE = "live"
+CACHE_EXTRACTION_SOURCE = "cache"
 
 # Seeded invoices have no real capture timestamp — extraction has not run
 # yet. ``received_at`` must still be deterministic so the duplicate rule
@@ -251,14 +258,19 @@ def ingest_invoices(
 class ExtractionIngestOutcome:
     """What happened extracting one invoice's fields from its image.
 
-    ``succeeded`` is ``False`` for a missing image file or an
-    ``ExtractionError`` — the two failure modes this path isolates.
-    ``model_id``, ``input_tokens`` and ``output_tokens`` come from the real
-    response body (``raw_response["model"]``, ``raw_response["usage"]``),
-    never from ``ModelConfig`` — a replayed entry must report the model
-    that truly served it, not the model the caller asked for. They are
-    ``None`` when extraction did not succeed, or when the response carried
-    no usage block.
+    ``succeeded`` is ``False`` for a missing image file, a cache miss
+    (``CacheMissError``), or an ``ExtractionError`` — the failure modes
+    this path isolates. ``model_id``, ``input_tokens`` and ``output_tokens``
+    come from the real response body (``raw_response["model"]``,
+    ``raw_response["usage"]``), never from ``ModelConfig`` — a replayed
+    entry must report the model that truly served it, not the model the
+    caller asked for. They are ``None`` when extraction did not succeed, or
+    when the response carried no usage block.
+
+    ``source`` records whether this invoice's raw response came from a
+    live Bedrock call (``"live"``) or the saved cache (``"cache"``) — the
+    exercise manifest requires this documented per invoice, not just for
+    the batch as a whole.
     """
 
     file_id: str
@@ -267,6 +279,7 @@ class ExtractionIngestOutcome:
     model_id: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    source: str | None = None
 
 
 def _usage_from_raw_response(raw_response: dict) -> tuple[int | None, int | None]:
@@ -287,6 +300,9 @@ def ingest_invoices_via_extraction(
     seed_path: Path = DEFAULT_SEED_PATH,
     images_dir: Path = DEFAULT_IMAGES_DIR,
     model_config: ModelConfig | None = None,
+    use_cache: bool = False,
+    refresh_cache: bool = False,
+    cache_dir: Path = DEFAULT_CACHE_DIR,
 ) -> list[ExtractionIngestOutcome]:
     """Load invoice rows by reading each fixture's image through the model.
 
@@ -301,22 +317,53 @@ def ingest_invoices_via_extraction(
 
     ``original_value`` and ``current_value`` are written identically, same
     as the prepared-record path: nothing has been corrected yet.
-    ``extraction_source`` is recorded as ``LIVE_EXTRACTION_SOURCE``.
+    ``extraction_source`` is recorded as ``LIVE_EXTRACTION_SOURCE`` or
+    ``CACHE_EXTRACTION_SOURCE``, matching whichever path actually served
+    this invoice's response.
 
-    Failure isolation: an invoice whose image file does not exist yet
-    (``quantity-overbill``, ``undercharge`` have none until Slice 7 renders
-    them), whose call raises ``ExtractionError``, or whose money fields
-    fail ``money.dollars_to_cents``, gets its ``invoices`` row inserted but
-    no ``extracted_fields`` rows at all — ``repository.get_current_fields``
-    then returns ``{}`` for it, which ``matcher``/``rules`` already treat as
-    unmatched (every lookup key is simply absent). The batch continues with
-    the next invoice. One bad image or one bad response never aborts the
-    run.
+    **Replay (`use_cache=True`).** The cache lookup (`cache.get`) wraps
+    **only the network call**: every invoice still goes through
+    ``image_path.read_bytes()`` (to verify the saved response's hash
+    against the image in hand), then ``extraction.parser.parse`` on
+    whatever raw response is in play, then the identical
+    ``dollars_to_cents`` conversion and database write. No separate
+    "replay" code path exists past the one line that chooses where
+    ``raw_response`` comes from — this is what makes replay prove the real
+    parsing and reconciliation path, not a parallel shortcut. A cache miss
+    (no saved entry, or the saved entry's hash no longer matches the image)
+    raises ``CacheMissError``, which is caught alongside the other
+    per-invoice failure modes below and marks only that invoice failed.
+    Replay never touches the AWS credential chain: ``build_client`` /
+    ``boto3`` is never imported on this path, since ``extract_invoice_fields``
+    is never called.
+
+    **Refresh (`refresh_cache=True`).** Forces a live call for every
+    invoice (bypassing any existing cache entry), and saves the raw
+    response via ``cache.put``, overwriting whatever was there. This is
+    the only path that writes to the cache. ``use_cache`` and
+    ``refresh_cache`` are mutually exclusive from the caller's point of
+    view (the CLI only ever sets one), but if both are passed,
+    ``refresh_cache`` takes priority — a refresh always calls the model.
+
+    Failure isolation: an invoice whose image file does not exist yet,
+    whose call or cache lookup raises (``ExtractionError``,
+    ``CacheMissError``), or whose money fields fail
+    ``money.dollars_to_cents``, gets its ``invoices`` row inserted but no
+    ``extracted_fields`` rows at all — ``repository.get_current_fields``
+    then returns ``{}`` for it. Its ``invoices.extraction_failed`` flag is
+    also set (``repository.mark_extraction_failed``), which is what
+    ``pipeline.recalculate_one`` reads to classify the invoice ``failed``
+    rather than ``unresolved`` — an empty field dict alone is indistinguishable
+    from the ``missing-reference`` fixture, which extracts fine but
+    genuinely has no ``po_id``. The batch continues with the next invoice.
+    One bad image or one bad response never aborts the run.
 
     ``model_config`` defaults to ``ModelConfig()`` (reading
     ``BEDROCK_MODEL_ID`` / ``AWS_REGION`` from the environment, as that
-    dataclass already does) when not supplied — the live Bedrock client is
-    then built once, lazily, for the whole call.
+    dataclass already does) when not supplied. The live Bedrock client is
+    built lazily — only when a live call is actually about to happen (i.e.
+    not on a pure ``use_cache`` replay) — so a credential-free replay run
+    never touches the credential chain even indirectly.
 
     Returns one ``ExtractionIngestOutcome`` per invoice, in fixture order,
     so the caller (the CLI) can report successes and failures without a
@@ -327,20 +374,27 @@ def ingest_invoices_via_extraction(
     _clear_invoice_data(conn)
 
     config = model_config if model_config is not None else ModelConfig()
-    client = build_client(config)
+    needs_live_client = refresh_cache or not use_cache
+    client = build_client(config) if needs_live_client else None
+    cache = ResponseCache(cache_dir)
     outcomes: list[ExtractionIngestOutcome] = []
 
     for index, invoice in enumerate(seed["invoices"]):
         file_id = invoice["file_id"]
         image_path = images_dir / f"{file_id}.png"
 
+        extraction_source = (
+            CACHE_EXTRACTION_SOURCE
+            if (use_cache and not refresh_cache)
+            else LIVE_EXTRACTION_SOURCE
+        )
         invoice_id = repository.insert_invoice(
             conn,
             file_id=file_id,
             image_path=str(image_path),
             layout=invoice["layout"],
             received_at=_seeded_received_at(index),
-            extraction_source=LIVE_EXTRACTION_SOURCE,
+            extraction_source=extraction_source,
         )
 
         if not image_path.exists():
@@ -349,6 +403,7 @@ def ingest_invoices_via_extraction(
                 file_id,
                 image_path,
             )
+            repository.mark_extraction_failed(conn, invoice_id=invoice_id)
             outcomes.append(
                 ExtractionIngestOutcome(
                     file_id=file_id,
@@ -358,9 +413,16 @@ def ingest_invoices_via_extraction(
             )
             continue
 
+        response_source = "cache" if (use_cache and not refresh_cache) else "live"
         try:
             image_bytes = image_path.read_bytes()
-            raw_response = extract_invoice_fields(client, config, image_bytes)
+            if refresh_cache:
+                raw_response = extract_invoice_fields(client, config, image_bytes)
+                cache.put(file_id, image_bytes, config.model_id, raw_response)
+            elif use_cache:
+                raw_response = cache.get(file_id, image_bytes).raw_response
+            else:
+                raw_response = extract_invoice_fields(client, config, image_bytes)
             fields = parse(raw_response)
             # The rules engine's ``_parse_cents`` expects ``unit_cents`` and
             # ``total_cents`` to already hold plain integer-cents text
@@ -373,22 +435,27 @@ def ingest_invoices_via_extraction(
             # reaches ``extracted_fields``.
             unit_cents = dollars_to_cents(fields.unit_price)
             total_cents = dollars_to_cents(fields.total)
-        except (ExtractionError, MoneyFormatError, OSError) as exc:
+        except (ExtractionError, CacheMissError, MoneyFormatError, OSError) as exc:
             # ExtractionError: the response failed shape/schema/domain
-            # validation. MoneyFormatError: a money value passed the
-            # parser's own domain check but still fails here (defence in
-            # depth). OSError: the image file vanished or could not be
-            # read between the existence check above and this read — all
-            # three isolate to this one invoice rather than aborting the
-            # batch, per the project's established failure-isolation
-            # contract (pipeline.recalculate_one does the same for a
-            # malformed stored money value).
+            # validation. CacheMissError: no usable saved response for
+            # this file_id (absent, unreadable, or a stale hash against
+            # the image in hand) — replay must fail this invoice rather
+            # than fabricate or reuse a stale response. MoneyFormatError:
+            # a money value passed the parser's own domain check but still
+            # fails here (defence in depth). OSError: the image file
+            # vanished or could not be read between the existence check
+            # above and this read — all four isolate to this one invoice
+            # rather than aborting the batch, per the project's
+            # established failure-isolation contract
+            # (pipeline.recalculate_one does the same for a malformed
+            # stored money value).
             logger.warning(
                 "extraction failed for invoice %r: %s: %s",
                 file_id,
                 type(exc).__name__,
                 exc,
             )
+            repository.mark_extraction_failed(conn, invoice_id=invoice_id)
             outcomes.append(
                 ExtractionIngestOutcome(
                     file_id=file_id,
@@ -430,6 +497,7 @@ def ingest_invoices_via_extraction(
                 model_id=response_model_id,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                source=response_source,
             )
         )
 
@@ -444,6 +512,9 @@ def run_ingest(
     reset_db: bool = False,
     use_extraction: bool = False,
     model_config: ModelConfig | None = None,
+    use_cache: bool = False,
+    refresh_cache: bool = False,
+    cache_dir: Path = DEFAULT_CACHE_DIR,
 ) -> list[ExtractionIngestOutcome] | None:
     """Build/refresh the database at ``db_path`` from ``seed_path``.
 
@@ -452,14 +523,18 @@ def run_ingest(
     (if any) is reused: ``init_db`` is idempotent DDL, and
     ``ingest_reference_data`` clears reference rows before reinserting.
 
-    ``use_extraction`` selects which invoice-ingest path runs:
+    The invoice-ingest path is chosen as follows:
 
-    - ``False`` (the default) — ``ingest_invoices``, the prepared-record
-      path every existing test and the seed check depend on. Returns
-      ``None``.
-    - ``True`` — ``ingest_invoices_via_extraction``, the live Bedrock path.
-      Returns the list of per-invoice ``ExtractionIngestOutcome`` so the
-      caller can report successes and failures.
+    - ``use_extraction`` is ``False`` and neither cache flag is set (the
+      default) — ``ingest_invoices``, the prepared-record path every
+      existing test and the seed check depend on. Returns ``None``.
+    - ``use_extraction`` is ``True``, or ``use_cache``/``refresh_cache`` is
+      set — ``ingest_invoices_via_extraction``. ``use_cache`` replays saved
+      responses with no live call and no credential-chain access;
+      ``refresh_cache`` forces a live call for every invoice and saves the
+      response. Returns the list of per-invoice
+      ``ExtractionIngestOutcome`` so the caller can report successes and
+      failures.
     """
     if reset_db and db_path != Path(":memory:") and Path(db_path).exists():
         Path(db_path).unlink()
@@ -467,12 +542,15 @@ def run_ingest(
     with connect(db_path) as conn:
         init_db(conn)
         ingest_reference_data(conn, seed_path=seed_path)
-        if use_extraction:
+        if use_extraction or use_cache or refresh_cache:
             return ingest_invoices_via_extraction(
                 conn,
                 seed_path=seed_path,
                 images_dir=images_dir,
                 model_config=model_config,
+                use_cache=use_cache,
+                refresh_cache=refresh_cache,
+                cache_dir=cache_dir,
             )
         ingest_invoices(conn, seed_path=seed_path, images_dir=images_dir)
         return None

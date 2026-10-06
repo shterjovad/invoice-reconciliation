@@ -130,9 +130,54 @@ def test_one_invoice_extraction_error_does_not_stop_the_batch(conn, monkeypatch)
         assert fields["unit_cents"] == "2000"  # "20.00" dollars converted to cents
         assert fields["total_cents"] == "10000"
 
-    # quantity-overbill and undercharge have no image file yet (Slice 7
-    # renders them) -- they must fail gracefully too, not crash the batch,
-    # and must never reach the fake extraction call at all.
+    # Every invoice now has an image (Slice 7 rendered the last two), so the
+    # whole batch is accounted for: one simulated failure, the rest ingested.
     for file_id in ("quantity-overbill", "undercharge"):
-        assert by_file_id[file_id].succeeded is False
-        assert "image file not found" in by_file_id[file_id].error
+        assert by_file_id[file_id].succeeded is True, (
+            f"{file_id} should have succeeded; got {by_file_id[file_id].error}"
+        )
+
+
+def test_a_missing_image_fails_only_that_invoice(conn, monkeypatch, tmp_path):
+    """An invoice whose image file is absent fails on its own and never
+    reaches the extraction call. The rest of the batch still ingests.
+
+    This used to be covered incidentally, because ``quantity-overbill`` and
+    ``undercharge`` had no rendered image. Slice 7 rendered them, so the
+    condition is now created deliberately: every image is copied to a scratch
+    directory except one. Testing it by accident of repository state meant the
+    coverage disappeared the moment the fixtures were completed.
+    """
+    images_dir = tmp_path / "images"
+    images_dir.mkdir()
+    absent = "undercharge"
+    for image in IMAGES_DIR.glob("*.png"):
+        if image.stem != absent:
+            (images_dir / image.name).write_bytes(image.read_bytes())
+
+    monkeypatch.setattr(ingest_module, "build_client", lambda config: object())
+    monkeypatch.setattr(
+        ingest_module,
+        "extract_invoice_fields",
+        lambda client, config, image_bytes: _FAKE_SUCCESS_RESPONSE,
+    )
+
+    ingest_module.ingest_reference_data(conn, seed_path=SEED_PATH)
+    outcomes = ingest_module.ingest_invoices_via_extraction(
+        conn,
+        seed_path=SEED_PATH,
+        images_dir=images_dir,
+        model_config=ModelConfig(),
+    )
+
+    by_file_id = {outcome.file_id: outcome for outcome in outcomes}
+
+    assert by_file_id[absent].succeeded is False
+    assert "image file not found" in by_file_id[absent].error
+
+    # The one missing image did not stop anything else.
+    for file_id, outcome in by_file_id.items():
+        if file_id != absent:
+            assert outcome.succeeded is True, (
+                f"{file_id} should have succeeded; got {outcome.error}"
+            )
