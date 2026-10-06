@@ -3,6 +3,15 @@
     "awos-recruitment": {
       "type": "http",
       "url": "https://recruitment.awos.provectus.pro/mcp"
+    },
+    "aws-knowledge-mcp-server": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "fastmcp@4.0.10",
+        "run",
+        "https://knowledge-mcp.global.api.aws"
+      ]
     }
   }
 }
