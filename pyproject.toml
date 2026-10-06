@@ -13,6 +13,7 @@ dependencies = [
     "anthropic[bedrock]",
     "jsonschema",
     "botocore[crt]>=1.43.108",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]

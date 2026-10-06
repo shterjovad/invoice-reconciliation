@@ -115,15 +115,15 @@ tests — those are the regression suite.
   - [x] Show an unresolved invoice with no expected amount and no difference, rather than a zero or an estimate. Show a failed invoice with its reason. **[Agent: python-backend]**
   - [x] Verify: start the server in the background and record its PID. Open the discrepant invoice and report the real page content: billed $120.00, expected $100.00, difference $20.00, and the matched `PO-2` and its receipt. Open the unresolved invoice and confirm no amounts appear. Stop the server by PID. Delete any screenshots or captured output. **[Agent: python-backend]**
 
-- [ ] **Slice 11: Correct a value and watch the result change**
+- [x] **Slice 11: Correct a value and watch the result change**
 
   > The required correction case. It must survive a restart.
 
-  - [ ] Add `POST /invoices/{id}/fields/{field_name}`. Validate the new value, write a `corrections` row and update `extracted_fields.current_value` in one transaction, then call `pipeline.recalculate_one`. The route holds no reconciliation logic. **[Agent: python-backend]**
-  - [ ] Keep `original_value` visible beside the corrected value in `detail.html`, with the correction recorded. **[Agent: python-backend]**
-  - [ ] Add the correction case to the reference set: the field to correct, and the result the correction must produce, calculated by hand and stored apart from any output. **[Agent: python-backend]**
-  - [ ] Write `tests/integration/test_correction.py`: correcting the unit price on the discrepant invoice to the agreed price turns it `reconciled` with a difference of zero; the original value remains readable; the result survives a new connection. **[Agent: testing-expert]**
-  - [ ] Verify: start the server in the background and record its PID. Correct a value through the real route and report the recalculated status and difference. Stop the server, start it again, and confirm the correction and the new result are still there. Stop the server by PID. Delete any captured output. **[Agent: testing-expert]**
+  - [x] Add `POST /invoices/{id}/fields/{field_name}`. Validate the new value, write a `corrections` row and update `extracted_fields.current_value` in one transaction, then call `pipeline.recalculate_one`. The route holds no reconciliation logic. **[Agent: python-backend]**
+  - [x] Keep `original_value` visible beside the corrected value in `detail.html`, with the correction recorded. **[Agent: python-backend]**
+  - [x] Add the correction case to the reference set: the field to correct, and the result the correction must produce, calculated by hand and stored apart from any output. **[Agent: python-backend]**
+  - [x] Write `tests/integration/test_correction.py`: correcting the unit price on the discrepant invoice to the agreed price turns it `reconciled` with a difference of zero; the original value remains readable; the result survives a new connection. **[Agent: testing-expert]**
+  - [x] Verify: start the server in the background and record its PID. Correct a value through the real route and report the recalculated status and difference. Stop the server, start it again, and confirm the correction and the new result are still there. Stop the server by PID. Delete any captured output. **[Agent: testing-expert]**
 
 - [ ] **Slice 12: Draft a note and summarise the batch**
 

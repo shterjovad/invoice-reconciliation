@@ -34,6 +34,7 @@
                         <th>Field</th>
                         <th>Original</th>
                         <th>Current</th>
+                        <th>Correct</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -42,6 +43,14 @@
                         <td>{{ field.field_name }}</td>
                         <td>{{ field.original_display }}</td>
                         <td>{{ field.current_display }}</td>
+                        <td>
+                            <form class="correction-form" method="post"
+                                  action="/invoices/{{ invoice.invoice_id }}/fields/{{ field.field_name }}">
+                                <input type="text" name="value"
+                                       placeholder="new value">
+                                <button type="submit">Save</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

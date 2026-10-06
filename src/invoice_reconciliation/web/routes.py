@@ -1,10 +1,11 @@
-"""The six reviewer-UI routes (``technical-considerations.md`` section 2.6).
+"""The reviewer-UI routes (``technical-considerations.md`` section 2.6).
 
-This slice implements the queue only (``GET /invoices``). The other five
-routes are added by later slices as siblings on this same ``router`` —
-none of them re-implement reconciliation: a correction route calls
-``pipeline.recalculate_one``, the same function the headless batch command
-calls per invoice.
+This slice implements the queue, the detail page, the image route, and the
+field-correction route. The remaining two routes (the note editor and
+``/summary``) are added by later slices as siblings on this same
+``router`` — none of them re-implement reconciliation: the correction
+route calls ``pipeline.recalculate_one``, the same function the headless
+batch command calls per invoice.
 
 Every route opens its own short-lived connection via ``get_db_path`` +
 ``invoice_reconciliation.db.connection.connect``, reads ``request.app.state.db_path``, and
@@ -16,18 +17,33 @@ requests.
 from __future__ import annotations
 
 import mimetypes
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from invoice_reconciliation.db import repository
 from invoice_reconciliation.db.connection import connect
-from invoice_reconciliation.money import cents_to_display
+from invoice_reconciliation.money import MoneyFormatError, cents_to_display
+from invoice_reconciliation.pipeline import recalculate_one
 
 __all__ = ["router"]
 
 router = APIRouter()
+
+# There is no authentication in this product (task brief, Slice 11). Every
+# correction is attributed to this fixed placeholder rather than inventing a
+# login system to satisfy the NOT NULL constraint on
+# ``corrections.changed_by``.
+_REVIEWER = "reviewer"
+
+# The two fields whose current_value text holds integer USD cents (e.g.
+# "12000" == $120.00), per reconciliation/rules.py's _parse_cents contract —
+# NOT a dollar-amount string, so validation here must match that contract
+# rather than money.dollars_to_cents (which would reinterpret "12000" as
+# $12,000.00 and return 1200000).
+_CENTS_FIELDS = frozenset({"unit_cents", "total_cents"})
 
 # Fixed base directory that every invoice image must resolve inside of.
 # ``image_path`` in the database is a relative path from the repository
@@ -300,3 +316,139 @@ def invoice_image(request: Request, invoice_id: int) -> FileResponse:
 
     media_type = mimetypes.guess_type(resolved_path.name)[0] or "application/octet-stream"
     return FileResponse(resolved_path, media_type=media_type)
+
+
+def _now_iso() -> str:
+    """Current UTC timestamp in ISO-8601, matching ``pipeline._now_iso``'s format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _validate_field_value(field_name: str, raw_value: str) -> str:
+    """Check a reviewer-submitted value for one field, and return the text
+    to store in ``current_value``.
+
+    Returns the normalised text on success. Raises ``HTTPException(422)``
+    with a readable message on an invalid value — nothing is written to the
+    database in that case.
+
+    - ``unit_cents`` and ``total_cents`` hold integer USD cents as text
+      (``"12000"`` == $120.00), the same contract
+      ``reconciliation/rules.py:_parse_cents`` reads back. They are
+      validated with that same plain base-10 integer parse, never with
+      ``money.dollars_to_cents`` — that function treats its input as a
+      dollar amount and would reinterpret ``"12000"`` as $12,000.00.
+    - ``quantity`` must be a positive integer.
+    - Every other field (``invoice_number``, ``supplier_id``, ``po_id``,
+      ``sku``) is free text; only a blank value is rejected, since a
+      reviewer correction supplies a specific replacement, not an
+      intentional null (unlike extraction, which may legitimately produce
+      ``None`` for ``po_id``).
+    """
+    text = raw_value.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail=f"{field_name} must not be blank")
+
+    if field_name in _CENTS_FIELDS:
+        negative = text.startswith("-")
+        unsigned = text[1:] if negative else text
+        if not unsigned.isdigit():
+            raise HTTPException(
+                status_code=422,
+                detail=f"{field_name} must be an integer number of cents, got {raw_value!r}",
+            )
+        return text
+
+    if field_name == "quantity":
+        if not text.isdigit() or int(text) <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"quantity must be a positive integer, got {raw_value!r}",
+            )
+        return text
+
+    return text
+
+
+@router.post("/invoices/{invoice_id}/fields/{field_name}")
+def correct_field(
+    request: Request,
+    invoice_id: int,
+    field_name: str,
+    value: str = Form(...),
+) -> RedirectResponse:
+    """Correct one extracted field, then recalculate the invoice.
+
+    This route holds no reconciliation logic: it validates the submitted
+    value, persists it, and delegates recomputation entirely to
+    ``pipeline.recalculate_one`` — the same function the headless batch
+    command calls per invoice.
+
+    Takes ``value`` as an ordinary form field (``application/
+    x-www-form-urlencoded``), matching the rest of this server-rendered
+    product: ``detail.html``'s per-field correction form posts here
+    directly, with no client-side script. On success, redirects (303) back
+    to the detail page so the reviewer sees the corrected value and the new
+    reconciliation result in one round trip.
+
+    Steps:
+
+    1. Look up the invoice (404 if it does not exist) and the field's
+       current value (404 if ``field_name`` is not one of the seven
+       extracted fields for this invoice).
+    2. Validate the new value (422 if invalid; nothing is written).
+    3. In one transaction: write a ``corrections`` audit row, then update
+       ``extracted_fields.current_value``. ``original_value`` is never
+       touched — it stays whatever extraction first produced.
+    4. Still inside that same connection, call
+       ``pipeline.recalculate_one`` so the reconciliation result reflects
+       the correction before the response is returned.
+
+    A failure between the correction row and the field update cannot
+    leave one without the other: both happen inside the single
+    ``connect()`` context, which commits once on clean exit and rolls
+    back entirely on any exception.
+    """
+    if field_name not in FIELD_NAMES:
+        raise HTTPException(status_code=404, detail=f"unknown field: {field_name}")
+
+    db_path = get_db_path(request)
+    with connect(db_path) as conn:
+        invoice_row = repository.get_invoice(conn, invoice_id=invoice_id)
+        if invoice_row is None:
+            raise HTTPException(status_code=404, detail="invoice not found")
+
+        current_fields = repository.get_current_fields(conn, invoice_id=invoice_id)
+        if field_name not in current_fields:
+            raise HTTPException(status_code=404, detail=f"unknown field: {field_name}")
+
+        value_before = current_fields[field_name]
+        value_after = _validate_field_value(field_name, value)
+
+        changed_at = _now_iso()
+        repository.insert_correction(
+            conn,
+            invoice_id=invoice_id,
+            field_name=field_name,
+            value_before=value_before,
+            value_after=value_after,
+            changed_by=_REVIEWER,
+            changed_at=changed_at,
+        )
+        repository.update_current_field_value(
+            conn,
+            invoice_id=invoice_id,
+            field_name=field_name,
+            current_value=value_after,
+        )
+
+        try:
+            recalculate_one(conn, invoice_id)
+        except MoneyFormatError as exc:
+            # recalculate_one already catches this internally and records
+            # 'failed' instead of raising — this branch only guards against
+            # a future change to that contract so a correction never 500s.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return RedirectResponse(
+        url=f"/invoices/{invoice_id}", status_code=303
+    )

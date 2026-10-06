@@ -301,6 +301,55 @@ def get_original_fields(conn: sqlite3.Connection, *, invoice_id: int) -> dict[st
 
 
 # ---------------------------------------------------------------------------
+# corrections
+# ---------------------------------------------------------------------------
+
+
+def insert_correction(
+    conn: sqlite3.Connection,
+    *,
+    invoice_id: int,
+    field_name: str,
+    value_before: str | None,
+    value_after: str | None,
+    changed_by: str,
+    changed_at: str,
+) -> None:
+    """Append one row to the ``corrections`` audit trail.
+
+    Append-only: this function never updates or deletes an existing row.
+    The caller (the correction route) writes this row and the matching
+    ``extracted_fields.current_value`` update inside the same transaction,
+    so the two never diverge.
+    """
+    conn.execute(
+        """
+        INSERT INTO corrections (
+            invoice_id, field_name, value_before, value_after,
+            changed_by, changed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (invoice_id, field_name, value_before, value_after, changed_by, changed_at),
+    )
+
+
+def list_corrections(conn: sqlite3.Connection, *, invoice_id: int) -> list[sqlite3.Row]:
+    """Return every correction recorded for an invoice, oldest first."""
+    cursor = conn.execute(
+        """
+        SELECT correction_id, invoice_id, field_name, value_before, value_after,
+               changed_by, changed_at
+        FROM corrections
+        WHERE invoice_id = ?
+        ORDER BY correction_id ASC
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchall()
+
+
+# ---------------------------------------------------------------------------
 # reconciliation_results
 # ---------------------------------------------------------------------------
 

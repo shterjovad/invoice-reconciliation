@@ -1,0 +1,57 @@
+[
+  {
+    "case": "correct-wrong-price-total",
+    "_comment": [
+      "Hand-calculated, not copied from any program output.",
+      "The required correction case from the brief: a reviewer corrects a",
+      "mis-read value and the reconciliation result changes to match.",
+      "",
+      "WHICH FIELD, AND WHY IT IS total_cents AND NOT unit_cents:",
+      "rules.py reads billed_cents from the invoice's own total_cents field,",
+      "and expected_cents from the matched PURCHASE ORDER's unit price, not",
+      "from the invoice's unit_cents. Correcting the invoice's unit_cents",
+      "alone therefore changes neither side of the comparison and the status",
+      "would not move. total_cents is the field that drives billed_cents.",
+      "",
+      "BEFORE the correction (wrong-price, matched to PO-2 / RC-2):",
+      "  expected_cents = ordered_quantity * po.unit_cents = 5 * 2000 = 10000",
+      "  billed_cents   = invoice total_cents                      = 12000",
+      "  difference     = 12000 - 10000                            =  2000",
+      "  status = discrepant",
+      "",
+      "THE CORRECTION: total_cents 12000 -> 10000",
+      "  The invoice was read as billing 120.00 when the agreed amount for",
+      "  five units at the agreed 20.00 each is 100.00.",
+      "",
+      "AFTER the correction:",
+      "  expected_cents = 5 * 2000 = 10000   (unchanged; it comes from the PO)",
+      "  billed_cents   = 10000              (the corrected value)",
+      "  difference     = 10000 - 10000 = 0",
+      "  status = reconciled",
+      "",
+      "WHAT MUST ALSO HOLD:",
+      "  original_value for total_cents stays readable as '12000'. It is",
+      "  never overwritten; current_value is what changes.",
+      "  One corrections row is appended: value_before '12000',",
+      "  value_after '10000'.",
+      "  The new result survives a new connection and a server restart,",
+      "  because it is persisted, not held in memory."
+    ],
+    "invoice_file_id": "wrong-price",
+    "field_name": "total_cents",
+    "value_before": "12000",
+    "value_after": "10000",
+    "before": {
+      "status": "discrepant",
+      "expected_cents": 10000,
+      "billed_cents": 12000,
+      "difference_cents": 2000
+    },
+    "after": {
+      "status": "reconciled",
+      "expected_cents": 10000,
+      "billed_cents": 10000,
+      "difference_cents": 0
+    }
+  }
+]
