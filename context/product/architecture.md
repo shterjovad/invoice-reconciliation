@@ -1,173 +1,170 @@
 # System Architecture Overview: Invoice Reconciliation
 
-_Local-only application. The stack below was specified directly and is treated as decided; the
-alternatives listed exist to record what was considered and why it was not chosen, not to reopen the
-choice._
+_The product runs on one local machine. The user specified the stack below, so these choices are
+settled. The alternatives record what I considered and why I did not choose it. They do not reopen
+the decision._
 
-**Guiding constraints**
+**Controlling constraints**
 
 1. **One pipeline, two entry points.** A headless batch command and the web view run the *same*
-   ingest → extract → reconcile → persist path. The web view reads and mutates the same database; it
-   is not a parallel implementation.
-2. **Money is integer USD cents, everywhere.** No floating-point money arithmetic at any layer.
-3. **A reviewer with no AWS credentials must be able to run the whole thing** from recorded model
-   responses.
-4. **The oracle's record shape is binding** — the seed check compares against the supplied shape, not
-   a normalised one.
+   path: ingest, extract, reconcile, persist. The web view reads and writes the same database. It is
+   not a second implementation.
+2. **All money is integer USD cents.** No layer uses floating-point arithmetic for money.
+3. **An assessor with no AWS credentials must run the full flow** from saved model responses.
+4. **The supplied answer file controls the comparison.** The seed check compares against the exact
+   record shape of that file. It does not normalise the shape.
 
 ---
 
-## 1. Application & Technology Stack
+## 1. Application and Technology Stack
 
-- **Language:** Python 3.11+ — the host default interpreter is 3.11.6, which satisfies this.
-  _Alternatives: 3.12/3.13 (available, but 3.11 is the verified baseline and avoids churn)._
-- **Web Framework:** FastAPI — serves the reviewer UI and the correction endpoints.
-  _Alternatives: Flask (lighter, but FastAPI's typed request models and validation suit the
-  correction payloads); Django (far more than a local, auth-free review tool needs)._
-- **View Layer:** Jinja2 server-rendered templates — the reviewer UI is a queue, a detail view, and a
-  correction form; server rendering keeps all reconciliation logic in Python with no client-side
-  state to drift from the database.
-  _Alternatives: React/Vue SPA (adds a build toolchain and a second place for money formatting to go
-  wrong, for a single-user local tool)._
-- **ASGI Server:** Uvicorn — the standard FastAPI development server.
-- **Batch Entry Point:** A headless command (`python -m ...`) running ingest → extract → reconcile →
-  persist. This is what makes the seed check reproducible and is the primary target of the replay
+- **Language:** Python 3.11+. The default interpreter on this machine is 3.11.6, which meets this.
+  _Alternatives: 3.12 or 3.13. Both exist on the machine, but 3.11 is the tested base._
+- **Web Framework:** FastAPI. It serves the reviewer interface and the correction endpoints.
+  _Alternatives: Flask is smaller, but FastAPI validates the correction requests through typed
+  models. Django gives far more than a local tool needs._
+- **View Layer:** Jinja2 templates, rendered on the server. The interface is a queue, a detail view
+  and a correction form. Server rendering keeps all the reconciliation logic in Python. No state on
+  the client can then disagree with the database.
+  _Alternatives: a React or Vue application. This adds a build toolchain and a second place where
+  money formatting can fail, for a tool with one user._
+- **ASGI Server:** Uvicorn, the standard development server for FastAPI.
+- **Batch Entry Point:** a headless command (`python -m ...`). It runs ingest, extract, reconcile and
+  persist. This command makes the seed check repeatable. It is also the main target of the replay
   mode.
-- **Fixture Rendering:** Pillow — required by `tasks/invoices/render_invoices.py`. **Pin `Pillow >=
-  10.1`**: the script calls `ImageFont.load_default(size=...)`, and the `size` parameter is not
-  available on older releases.
-- **Dependency Management:** `uv` with a `pyproject.toml` and committed lockfile — `uv` 0.7.8 is
-  already on the host and gives a reproducible 3.11 environment from a clean checkout.
-  _Alternatives: Poetry (also installed, slower); bare pip + requirements.txt (no lockfile)._
-  **Note:** nothing the project needs is currently installed on the default interpreter — not
-  `anthropic`, `boto3`, `fastapi`, `jinja2`, `Pillow`, or `pytest`. A fresh virtualenv is mandatory.
-  A stale x86_64 Python 3.10.6 on the host has some of these but is **unusable** on this arm64
-  machine; do not plan around it.
+- **Fixture Rendering:** Pillow. The script `tasks/invoices/render_invoices.py` needs it. **Pin
+  `Pillow >= 10.1`.** The script calls `ImageFont.load_default(size=...)`, and older versions do not
+  accept the `size` parameter.
+- **Dependency Management:** `uv`, with a `pyproject.toml` and a committed lockfile. Version 0.7.8
+  is already on the machine. It builds a repeatable 3.11 environment from a clean copy.
+  _Alternatives: Poetry is also present but slower. Plain pip with a requirements file gives no
+  lockfile._
+  **Note:** the default interpreter has none of the packages that this project needs. It lacks
+  `anthropic`, `boto3`, `fastapi`, `jinja2`, `Pillow` and `pytest`. A new virtual environment is
+  therefore necessary. An old x86_64 Python 3.10.6 on this machine holds some of these packages, but
+  `fastapi` cannot import there on arm64. **Do not use that interpreter.**
 
 ---
 
-## 2. Data & Persistence
+## 2. Data and Persistence
 
-- **Primary Database:** SQLite — single-file local state, already anticipated by `.gitignore`
-  (`*.sqlite`, `*.db`, "Local application state (regenerate from fixtures)"). The database is a
-  rebuildable artifact, never a source of truth: the fixtures are.
-  _Alternatives: PostgreSQL (needs a running service, unjustified for a local single-user tool);
-  in-memory only (would lose corrections between the batch run and the web view, breaking the
-  shared-pipeline requirement)._
-- **Database Access:** A **thin hand-rolled data layer over the standard library's `sqlite3`** — no
-  ORM. The schema is small and the queries are simple joins, so an ORM would add a dependency and an
-  abstraction without earning either. Keeping SQL explicit also keeps the integer-cents columns
-  visible at the point of query.
-  _Alternatives: SQLAlchemy Core (more structure and easier future migrations, but neither is needed
-  for a local tool rebuilt from fixtures); a full ORM (clearly excessive here)._
-- **Money Representation:** **Integer cents in `INTEGER` columns.** No `REAL`/float money column may
-  exist anywhere in the schema.
-- **Money Conversion (single most important rule):** Extraction returns **dollar strings** (`"24.00"`,
-  `"120.00"`). Convert to cents in **exactly one module**, using `Decimal` or a string split on the
-  decimal point — **never `float(x) * 100`**, which silently rounds (e.g. `float("24.00")*100` is not
-  reliably `2400` across values). This converter carries its own unit tests covering trailing zeros,
-  missing decimal places, and values with no decimal point at all.
-- **Core Entities:** purchase orders, receipts, invoices, extracted-field records, and reconciliation
+- **Primary Database:** SQLite. It keeps the local state in one file. The `.gitignore` file already
+  expects this: it ignores `*.sqlite` and `*.db` under the comment "Local application state
+  (regenerate from fixtures)". The database is a rebuildable artifact. It is never the source of
+  truth. The supplied files are.
+  _Alternatives: PostgreSQL needs a running service, which a local tool with one user does not
+  justify. Memory-only storage would lose the corrections between the batch run and the web view,
+  which breaks the shared-pipeline rule._
+- **Database Access:** a thin layer over the standard library module `sqlite3`. **No ORM.** The
+  schema is small and the queries are simple joins. An ORM would add a dependency and a layer of
+  abstraction, and earn neither. Explicit SQL also keeps the integer-cent columns visible in the
+  query.
+  _Alternatives: SQLAlchemy Core gives more structure and easier migrations later. A local tool that
+  rebuilds from files needs neither._
+- **Money Representation:** **integer cents in `INTEGER` columns.** No `REAL` column for money can
+  exist in the schema.
+- **Money Conversion — the most important rule in this document.** Extraction returns **dollar
+  strings**, such as `"24.00"` and `"120.00"`. **One module** converts them to cents. It uses
+  `Decimal`, or a string split on the decimal point. It **never uses `float(x) * 100`**, which
+  rounds silently. This converter has its own unit tests. The tests cover trailing zeros, missing
+  decimal places and values with no decimal point.
+- **Core Entities:** purchase orders, receipts, invoices, extracted values and reconciliation
   results.
-- **Mutable Extraction Records:** Extracted field values are stored **separately from the
-  reconciliation result** and are mutable, with the original model-extracted value retained alongside
-  any reviewer correction. The exercise explicitly requires demonstrating a field correction and the
-  recalculation it produces, so reconciliation must be a recomputable function of current field
-  values — not a one-shot pipeline that discards its inputs.
-- **Correction Audit:** Each correction records which field changed, the value before and after, and
-  that it was reviewer-sourced, so a recalculated figure can be explained.
+- **Changeable Extraction Records:** the extracted values live **apart from the reconciliation
+  result**, and the reviewer can change them. The product keeps the first value from the model next
+  to any correction. The exercise asks for a correction and the result that follows it.
+  Reconciliation must therefore recalculate from the current values. It cannot be a single pass that
+  discards its input.
+- **Correction Record:** each correction records the changed field, the value before, the value
+  after, and that the reviewer made the change. Each new figure then has an explanation.
 
 ---
 
-## 3. Infrastructure & Deployment
+## 3. Infrastructure and Deployment
 
-- **Deployment Model:** **None — local only.** No cloud deployment, no containers, no CI/CD. This is
-  an explicit out-of-scope decision from the brief, not an omission.
-- **Runtime:** A local `uv`-managed virtualenv; Uvicorn bound to localhost for the web view.
-- **Database Lifecycle:** The SQLite file is regenerable from the fixtures by re-running the batch
-  command; it is git-ignored and never committed.
-- **Repository Hygiene:** No Dockerfile, compose file, or workflow configuration is to be added.
-  _Note: Docker 28.0.4 is available on the host but is deliberately unused._
+- **Deployment Model:** **none. The product runs locally.** No cloud, no containers, no CI. The
+  brief states this, so it is a decision and not an omission.
+- **Runtime:** a local virtual environment that `uv` manages. Uvicorn binds to localhost for the web
+  view.
+- **Database Lifecycle:** the batch command regenerates the SQLite file from the supplied data. Git
+  ignores the file. Nobody commits it.
+- **Repository Hygiene:** do not add a Dockerfile, a compose file or a workflow file.
+  _Note: Docker 28.0.4 is on the machine. This project does not use it._
 
 ---
 
-## 4. External Services & APIs
+## 4. External Services and APIs
 
-- **Model Provider:** **AWS Bedrock**, region **us-east-1**, accessed through the `anthropic` Python
-  SDK's Bedrock client.
-  _Alternatives: the Anthropic API directly (would require a committed API key, which the project's
-  secret policy discourages); local OCR such as Tesseract (brittle across the two layouts, and the
-  images carry no text layer)._
+- **Model Provider:** **AWS Bedrock**, region **us-east-1**, through the Bedrock client in the
+  `anthropic` Python SDK.
+  _Alternatives: the Anthropic API needs a committed API key, which the secret policy of this
+  project discourages. Local OCR such as Tesseract breaks across the two layouts, and the images
+  carry no text layer._
 - **Model ID:** `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. **The `us.` inference-profile prefix
-  is required** — a bare model ID fails with `ValidationException: Invocation with on-demand
-  throughput isn't supported`. This is verified, not assumed: a test call against
-  `tasks/invoices/images/wrong-price.png` returned all seven fields correctly (854 input / 96 output
-  tokens).
-- **Extraction Contract:** The model returns the seven invoice fields — invoice number, supplier ID,
-  purchase-order ID, SKU, quantity, unit price, total. Monetary fields come back as **dollar
-  strings** and are converted to cents by the single converter in section 2. A missing
-  purchase-order reference must be representable (null), since the `missing-reference` fixture
-  depends on it.
-- **Credentials:** **SigV4 via the standard AWS credential chain.** There is no API key. Access is
-  **session-based, established with `aws login`** (the active identity resolves to the account root,
-  `arn:aws:iam::...:root`), and the `[default]` profile resolves to us-east-1. The application must
-  resolve credentials through the chain rather than reading keys from the environment; there is no
-  `~/.aws/credentials` file holding static keys.
-  **Run instructions must say `aws login`, not `aws sso login`.** The IAM Identity Center profiles
-  present in `~/.aws/config` belong to unrelated work and are not used by this project.
-- **Response Cache & Replay Mode:** Raw Bedrock responses are **cached to disk, keyed by invoice
-  image**, with a flag to run the pipeline from cache instead of calling the model. This is a **hard
-  requirement**: the exercise requires documenting how to "replay saved real responses without
-  credentials", and because access depends on a session that lapses, a reviewer may have no working
-  AWS access at all. The cached responses are committed so replay works from a clean checkout. Replay
-  must exercise the real parsing and reconciliation path — only the network call is bypassed.
-- **No other external services.** No authentication provider, no payments, no analytics — all out of
-  scope.
+  is necessary.** A bare model ID fails with `ValidationException: Invocation with on-demand
+  throughput isn't supported`. A test call proved this. The call used
+  `tasks/invoices/images/wrong-price.png` and returned all seven values correctly, with 854 input
+  tokens and 96 output tokens.
+- **Extraction Contract:** the model returns seven values: the invoice number, supplier ID,
+  purchase-order ID, SKU, quantity, unit price and total. The monetary values come back as **dollar
+  strings**. The single converter in section 2 turns them into cents. The contract must allow a null
+  purchase-order reference, because the `missing-reference` example depends on it.
+- **Credentials:** **SigV4, through the standard AWS credential chain.** There is no API key. The
+  session comes from **`aws login`**, and the identity resolves to the account root. The `[default]`
+  profile resolves to us-east-1. The application reads credentials from the chain. It does not read
+  them from environment variables. There is no `~/.aws/credentials` file with static keys.
+  **The run instructions say `aws login`, not `aws sso login`.** The IAM Identity Center profiles in
+  `~/.aws/config` belong to other work. This project does not use them.
+- **Response Cache and Replay Mode:** the product saves each raw Bedrock response to disk, under a
+  key from the invoice image. A flag then runs the pipeline from the cache in place of the model.
+  **The brief requires this.** It asks for instructions to "replay saved real responses without
+  credentials". The session can also lapse, so an assessor may have no AWS access at all. The saved
+  responses go into the repository, so replay works from a clean copy. Replay must run the real
+  parsing and reconciliation path. It bypasses only the network call.
+- **Failure Handling:** a failed call, or an invalid response, must not stop the batch. The product
+  marks that invoice with a visible failure status and gives it no amount.
+- **No other external services.** No sign-in provider, no payments, no analytics.
 
 ---
 
-## 5. Observability & Monitoring
+## 5. Observability and Monitoring
 
-- **Logging:** Python's standard `logging` to console and a local file. Each batch run logs per
-  invoice: which purchase order and receipt it matched, the extracted values used, the computed
-  expected and billed amounts, and the resulting status — so any classification can be explained
-  after the fact.
-  _Alternatives: structured JSON logging (more than a local tool needs, though harmless)._
-- **Model Call Records:** Each extraction logs the model ID, whether the response came from the live
-  API or the cache, and the token counts. `manifest.template.json` requires in-application model
-  parameters to be recorded separately from development tooling, so these belong in the application's
-  own records.
-- **Seed Verification as the Primary Check:** The reconciliation output for the four seed invoices is
-  compared against `tasks/invoices/expected-seed-results.json` **in that file's exact per-status
-  record shape**: a `duplicate` record carries `count_as_payable` and omits the cent fields entirely,
-  while an `unresolved` record carries explicit `null` for `expected_cents`/`difference_cents` and
-  omits `billed_cents`. **The comparison must not normalise these shapes.**
-- **Testing:** `pytest`, with a golden-file test against the oracle plus targeted unit tests for the
-  money converter and the classification rules. No test framework is configured in the repo today, so
-  this is new.
-- **No external monitoring.** No Sentry, OpenTelemetry, or metrics backend — out of scope for a local
-  tool.
+- **Logging:** the standard `logging` module, to the console and to a local file. For each invoice,
+  a batch run logs the matched purchase order and receipt, the values used, the expected and billed
+  amounts, and the status. Each result then has an explanation afterwards.
+  _Alternatives: structured JSON logs. A local tool does not need them, but they do no harm._
+- **Model Call Records:** each extraction logs the model ID, the token counts, and the source of the
+  response: the live API or the cache. `ai-workflow/manifest.template.json` asks for the model
+  parameters of the application, apart from the development tools. These records belong to the
+  application.
+- **The Seed Check is the Main Test:** the product compares its results for the four supplied
+  invoices with `tasks/invoices/expected-seed-results.json`. It compares against **the exact record
+  shape of that file**. A `duplicate` record holds `count_as_payable` and omits the cent fields. An
+  `unresolved` record holds explicit `null` for `expected_cents` and `difference_cents`, and omits
+  `billed_cents`. **The comparison must not normalise these shapes.**
+- **Testing:** `pytest`. It runs a golden-file test against the supplied answers, plus unit tests for
+  the money converter and the status rules. This repository has no test framework today, so this is
+  new.
+- **Reference Cases:** the project keeps five or more reference cases with answers calculated in
+  advance. These answers stay in a separate file from the output of the product.
+- **No external monitoring.** No Sentry, no OpenTelemetry, no metrics service.
 
 ---
 
-## 6. Secrets & Configuration
+## 6. Secrets and Configuration
 
-- **`ai-workflow/.env.example` carries variable names only:** `AWS_REGION` and `BEDROCK_MODEL_ID`.
-- **`MODEL_API_KEY` is to be removed** from that file. Bedrock authenticates with SigV4 from the AWS
-  credential chain, so there is no key to commit — leaving the name in place would misrepresent how
-  the application authenticates.
-- `.gitignore` already ignores `.env` and `.env.*` while force-including `.env.example`; no
-  credentials, tokens, or account identifiers may appear in any committed file.
+- **`ai-workflow/.env.example` holds only variable names:** `AWS_REGION` and `BEDROCK_MODEL_ID`.
+- **Remove `MODEL_API_KEY`** from that file. Bedrock authenticates with SigV4 from the credential
+  chain, so there is no key to commit. The name would misrepresent how the application connects.
+- `.gitignore` already ignores `.env` and `.env.*`, and keeps `.env.example`. No committed file may
+  hold a credential, a token or an account number.
 
 ---
 
 ## 7. Open Items for `/awos:tech`
 
-- The on-disk cache format and key derivation for recorded model responses (content hash versus
-  `file_id`).
-- Whether extraction runs invoices concurrently or serially — serial is the simpler default for four
-  fixtures.
-- How the batch command surfaces the seed-check result (exit code, printed diff, or both).
-- The four open domain questions carried from the product definition (multi-line invoices, quantity
-  mismatches, which duplicate copy stays payable, undercharges) remain product decisions, not
-  architectural ones.
+- The format of the response cache on disk, and the key for each entry: a hash of the content, or
+  the `file_id`.
+- Serial or concurrent extraction. Serial is the simpler default for a small set of invoices.
+- How the batch command reports the seed check: an exit code, a printed comparison, or both.
+- How the product stores the drafted note, and whether an edit by the reviewer persists.

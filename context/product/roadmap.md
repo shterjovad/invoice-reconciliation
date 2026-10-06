@@ -1,82 +1,93 @@
 # Product Roadmap: Invoice Reconciliation
 
-_This roadmap outlines our strategic direction based on customer needs and business goals. It focuses on the "what" and "why," not the technical "how."_
+_This roadmap gives the direction of the work. It covers the "what" and the "why". It does not cover
+the technical "how"._
 
-> **Anchoring note:** A capability assessment (`context/product/brownfield.md`, `## Capabilities`)
-> found **no implemented application features** — the repository contains only exercise fixtures and
-> workflow scaffolding. Every item below is therefore upcoming work; nothing is marked complete.
-> Phases are ordered by dependency: the reconciliation rules are proven against known-good data
-> before extraction is allowed to introduce uncertainty, and the reviewer interface is built on top
-> of results that are already trustworthy.
+> **Note on the order.** A capability check found **no application code** in this repository. It
+> holds only the supplied files and the workflow tools. Each item below is therefore new work.
+> Nothing is complete. The phases follow the dependencies. The rules get proof against known data
+> before extraction adds doubt. The reviewer interface comes after the results are correct.
 
 ---
 
 ### Phase 1
 
-_The highest priority features that form the core foundation of the product. The goal of this phase is a reconciliation engine that is provably correct against the supplied oracle, before any image reading is involved._
+_The first group of features. The goal of this phase is a reconciliation engine with proof against
+the supplied answers, before any image reading starts._
 
 - [ ] **Runnable Project Setup**
-  - [ ] **Declared Dependencies:** Make the project installable and runnable from a clean checkout with its dependencies declared, including the imaging library the fixture renderer needs — today that renderer fails on a missing dependency, so the fixtures cannot be regenerated.
-  - [ ] **Regenerable Fixtures:** Confirm the supplied invoice images can be regenerated from the seed data, so the test set is reproducible rather than only a set of committed files.
+  - [ ] **Declared Dependencies:** Make the project run from a clean copy, with its dependencies declared. This includes the imaging library for the fixture renderer. The renderer fails today, because that library is absent, so nobody can generate the images again.
+  - [ ] **Regenerable Fixtures:** Confirm that the supplied invoice images regenerate from the seed data. The test set then repeats, and is not only a set of files.
 
 - [ ] **Reference Data Foundation**
-  - [ ] **Purchase Order & Receipt Records:** Load the agreed SKU, quantity, and unit price for each purchase order, and the delivered quantity for each receipt, so every invoice has something to be judged against.
-  - [ ] **Invoice Records:** Hold what a supplier billed — invoice number, supplier, purchase-order reference, SKU, quantity, unit price, and total — independently of how those values were obtained.
+  - [ ] **Purchase Order and Receipt Records:** Load the agreed SKU, quantity and unit price for each purchase order. Load the delivered quantity for each receipt. Each invoice then has records to judge it against.
+  - [ ] **Invoice Records:** Hold what the supplier billed: the invoice number, supplier, purchase-order reference, SKU, quantity, unit price and total. Hold these apart from the method that found them.
 
-- [ ] **Matching & Classification**
-  - [ ] **Match on Supplier and Purchase Order:** Pair each invoice with its purchase order and receipt using supplier ID together with purchase-order ID, so that near-identical orders cannot be confused with one another.
-  - [ ] **Flag Unresolved Invoices:** Where the purchase-order reference is missing or conflicting, mark the invoice unresolved and compute no amounts, rather than guessing a match from the billed total.
-  - [ ] **Detect Duplicate Submissions:** Identify repeat submissions by supplier and invoice number so the same bill is never paid twice.
+- [ ] **Matching and Status**
+  - [ ] **Match on Supplier and Purchase Order:** Match each invoice to its purchase order and receipt on the supplier and the purchase-order reference. Two almost identical orders then stay separate.
+  - [ ] **Mark Unresolved Invoices:** Where the purchase-order reference is absent or wrong, mark the invoice unresolved and calculate no amounts. Do not guess the match from the billed total.
+  - [ ] **Find Duplicate Invoices:** Find repeated invoices by supplier and invoice number. The business then does not pay the same bill twice.
 
-- [ ] **Discrepancy Calculation**
-  - [ ] **Expected vs Billed Amounts:** Calculate the expected amount from ordered quantity and agreed unit price, compare it with what was billed, and report the difference in exact USD cents.
-  - [ ] **Quantity Checks:** Compare the billed quantity against both the ordered and the received quantity, so over-billing by volume is caught as well as by price.
-  - [ ] **Honest Recoverable Totals:** Keep duplicates and unresolved invoices out of any recoverable figure, so a reported recovery is one the business can actually pursue.
+- [ ] **Difference Calculation**
+  - [ ] **Expected Against Billed:** Calculate the expected amount from the ordered quantity and the agreed unit price. Compare it with the billed amount. Report the difference in exact USD cents.
+  - [ ] **Quantity Checks:** Compare the billed quantity with the ordered quantity and the received quantity. The product then finds overcharges by volume as well as by price.
+  - [ ] **Honest Recoverable Totals:** Keep duplicates and unresolved invoices out of the recoverable figure. The reported figure is then money that the business can pursue.
 
 - [ ] **Proof Against Known Cases**
-  - [ ] **Seed Case Verification:** Reproduce the supplied expected results for the four seed invoices exactly — including the differing record shapes for duplicate and unresolved entries — and keep this check runnable on demand so a reviewer can confirm it independently of the interface.
+  - [ ] **Seed Case Check:** Reproduce the supplied expected results for the four invoices exactly. This includes the different record shapes for duplicate entries and unresolved entries. Keep this check available at any time, apart from the interface.
 
 ---
 
 ### Phase 2
 
-_With the rules proven, this phase takes on the harder input problem: reading invoices as documents rather than as prepared data._
+_The rules now have proof. This phase takes the harder input problem: the product reads invoices as
+documents, not as prepared data._
 
 - [ ] **Invoice Document Intake**
-  - [ ] **Read Invoices From Images:** Extract the billed fields from supplier invoices supplied as images, so reconciliation can run from the documents a supplier actually sends.
-  - [ ] **Handle Differing Layouts:** Read invoices correctly whether fields are laid out in one column or two, so a supplier changing their template does not break processing.
-  - [ ] **Record Extraction Confidence:** Keep the extracted values traceable back to the source document, so a reviewer can tell what was read and check it against the invoice itself.
+  - [ ] **Read Invoices From Images:** Find the billed values in supplier invoices that arrive as images. The product then runs from the documents that a supplier sends.
+  - [ ] **Read Both Layouts:** Read invoices correctly in one-column form and two-column form. A change of supplier template then does not stop the work.
+  - [ ] **Keep the Source Visible:** Keep each value connected to its source document. The reviewer can then see what the product read and compare it with the invoice.
+  - [ ] **Continue After a Failure:** Continue the batch when one invoice fails to read, or when the model does not answer. Show each failed invoice with a clear status. Give it no amount.
 
-- [ ] **End-to-End Reconciliation**
-  - [ ] **Documents to Classified Results:** Run the full path — invoice image in, classified and costed result out — and confirm the seed cases still reproduce the expected results when driven from the images rather than from prepared data.
+- [ ] **Replay Without Credentials**
+  - [ ] **Save Model Responses:** Save the real responses from the model and run the full flow from them. An assessor with no account can then repeat the results. The brief requires this.
+
+- [ ] **Full Flow**
+  - [ ] **Documents to Results:** Run the full path, from invoice image to a status with its figures. Confirm that the supplied cases still give the expected results from the images.
 
 ---
 
 ### Phase 3
 
-_The reviewer experience. Built last because it presents results that are already correct and explainable._
+_The reviewer experience. This comes last, because it presents results that are already correct._
 
 - [ ] **Invoice Review Queue**
-  - [ ] **At-a-Glance Invoice Queue:** Show every invoice in a batch with its status — reconciled, discrepant, duplicate, or unresolved — so a reviewer can see immediately what needs attention.
-  - [ ] **Invoice Detail With Evidence:** For each invoice, show the matched purchase order and receipt, the expected and billed figures, and the reason for its status, alongside the invoice image, so no number has to be taken on trust.
+  - [ ] **Invoice Queue:** Show each invoice of a batch with its status: reconciled, discrepant, duplicate or unresolved. The reviewer then sees the exceptions at once.
+  - [ ] **Status Filter:** Filter the queue by status, so that the reviewer finds one group quickly.
+  - [ ] **Invoice Detail With Evidence:** For each invoice, show the matched purchase order and receipt, the expected and billed figures, and the reason for the status. Show the invoice image beside them. The reviewer then trusts no number on faith.
 
-- [ ] **Correction & Recalculation**
-  - [ ] **Inline Field Correction:** Let a reviewer correct a mis-extracted field directly against the invoice image when the system has read it wrongly.
-  - [ ] **Recalculate From Corrections:** Recompute the expected amount, the difference, and the status from the corrected value, and record what was changed, so corrections are auditable rather than silent.
+- [ ] **Correction and Recalculation**
+  - [ ] **Correct a Value:** Let the reviewer correct a value against the invoice image, where the product read it incorrectly.
+  - [ ] **Calculate Again:** Calculate the expected amount, the difference and the status again from the corrected value. Record the change, and keep the first value. The correction is then clear, not silent.
+  - [ ] **Keep Corrections:** Keep each correction after a restart.
 
-- [ ] **Reconciliation Summary**
-  - [ ] **Batch Summary View:** Summarise a run by status, reporting the genuine recoverable overcharge separately from duplicates and unresolved items, so the headline figure is never inflated by invoices that cannot be pursued.
+- [ ] **Summary and Note**
+  - [ ] **Batch Summary:** Summarise a run by status. Report the true recoverable overcharge apart from the duplicates and the unresolved invoices. The headline figure then stays honest.
+  - [ ] **Draft a Note:** Draft a short note for each difference. State the figures and name the source records. Keep the note a draft.
+  - [ ] **One Improvement:** Give one repeated problem or one improvement from the batch, with the invoices that support it.
 
 ---
 
 ### Phase 4
 
-_Completing the exercise deliverables. These are required for review and are deliberately sequenced after the product works, so they describe what was actually built._
+_The remaining deliverables for the exercise. These come after the product works, so that they
+describe the real result._
 
 - [ ] **Extended Test Coverage**
-  - [ ] **Additional Invoice Cases:** Add two to four further invoices under the same rules, including one case exercising a field correction with its expected recalculation, and at least one covering a scenario the supplied seed data cannot test.
-  - [ ] **Resolve or Record Ambiguity:** Settle the open domain questions — multi-line invoices, quantity mismatches, which copy of a duplicate stays payable, and undercharges — or record them explicitly as unresolved, without inventing rules.
+  - [ ] **More Invoice Cases:** Extend the set to six to eight invoices under the same rules. Add an invoice that bills too many units and an invoice that bills too little, because the supplied data tests neither. Add a case that needs a correction, with its expected result.
+  - [ ] **Five Reference Cases:** Give five or more reference cases with answers calculated in advance. Keep these answers apart from the output of the product.
+  - [ ] **Record the Ambiguities:** Record each open point in the supplied rules, with the chosen behaviour and the reason. Do not invent rules.
 
-- [ ] **Reproducibility & Workflow Write-Up**
-  - [ ] **Reviewer Run Instructions:** Document how to run the application and the seed-case check from a clean checkout, building on the dependency setup established in Phase 1.
-  - [ ] **AI Workflow Documentation:** Complete the workflow write-up and configuration manifest — tools and models used, configuration inventory, one worked example with a correction, and a credential-free replay path.
+- [ ] **Documents for the Assessor**
+  - [ ] **Run Instructions:** Describe how to run the application and the case check from a clean copy.
+  - [ ] **AI Workflow Record:** Complete the workflow document and the configuration manifest: the tools and models, the configuration files, one worked example with a correction, and the replay path without credentials.
