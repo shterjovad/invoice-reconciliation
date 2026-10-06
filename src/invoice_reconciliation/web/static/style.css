@@ -1,0 +1,48 @@
+/* Minimal styling for the reviewer UI. Server-rendered pages only — no
+   client-side framework, so this file stays plain CSS. */
+
+body {
+    font-family: system-ui, sans-serif;
+    margin: 2rem;
+    color: #1a1a1a;
+}
+
+h1 {
+    font-size: 1.4rem;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.4rem 0.8rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.status {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+    text-transform: capitalize;
+}
+
+.status-reconciled { background: #d9f2d9; }
+.status-discrepant { background: #fdeccb; }
+.status-duplicate { background: #e6e6e6; }
+.status-unresolved { background: #f6d9d9; }
+.status-failed { background: #f0b3b3; }
+
+.amount-negative { color: #b00020; }
+
+.filters a {
+    margin-right: 0.75rem;
+}
+
+.filters a.active {
+    font-weight: bold;
+    text-decoration: none;
+}

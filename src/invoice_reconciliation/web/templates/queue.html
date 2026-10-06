@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Invoice Queue</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>Invoice Queue</h1>
+
+    <p class="filters">
+        <a href="/invoices" class="{{ 'active' if selected_status is none else '' }}">all</a>
+        {% for status in statuses %}
+        <a href="/invoices?status={{ status }}"
+           class="{{ 'active' if selected_status == status else '' }}">{{ status }}</a>
+        {% endfor %}
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Invoice</th>
+                <th>Status</th>
+                <th>Expected</th>
+                <th>Billed</th>
+                <th>Difference</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invoice in invoices %}
+            <tr>
+                <td><a href="/invoices/{{ invoice.invoice_id }}">{{ invoice.file_id }}</a></td>
+                <td><span class="status status-{{ invoice.status }}">{{ invoice.status }}</span></td>
+                <td>{{ invoice.expected_display }}</td>
+                <td>{{ invoice.billed_display }}</td>
+                <td class="{{ 'amount-negative' if invoice.difference_cents is not none and invoice.difference_cents < 0 else '' }}">
+                    {{ invoice.difference_display }}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5">No invoices match this filter.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

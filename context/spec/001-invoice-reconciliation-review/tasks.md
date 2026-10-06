@@ -99,13 +99,13 @@ tests — those are the regression suite.
   - [x] Write `tests/integration/test_failure_isolation.py`: a corrupt or absent cache entry for one invoice leaves the others processed and listed; the failed invoice carries no expected amount and no difference. **[Agent: testing-expert]**
   - [x] Verify: corrupt one saved response in a scratch copy of the cache, run the batch from it, and report the real output. Confirm the other invoices still process and the failed one shows a reason. Restore the cache and delete the scratch copy. **[Agent: testing-expert]**
 
-- [ ] **Slice 9: Show the invoice queue in a browser**
+- [x] **Slice 9: Show the invoice queue in a browser**
 
   > The first user-visible screen. It reads the results the earlier slices already produce.
 
-  - [ ] Write `src/invoice_reconciliation/web/app.py` as a FastAPI factory with Jinja2 templates and a static mount. **[Agent: python-backend]**
-  - [ ] Add `GET /invoices` with an optional `?status=` filter, and `queue.html` listing every invoice with its status and main figures. **[Agent: python-backend]**
-  - [ ] Verify: start Uvicorn in the background and record its PID. Request the queue and the filtered queue, and report the real responses. Confirm every invoice appears with one status and that the filter narrows the list. Stop the server by the recorded PID, without piping the stop command into anything. Delete any captured output. **[Agent: python-backend]**
+  - [x] Write `src/invoice_reconciliation/web/app.py` as a FastAPI factory with Jinja2 templates and a static mount. **[Agent: python-backend]**
+  - [x] Add `GET /invoices` with an optional `?status=` filter, and `queue.html` listing every invoice with its status and main figures. **[Agent: python-backend]**
+  - [x] Verify: start Uvicorn in the background and record its PID. Request the queue and the filtered queue, and report the real responses. Confirm every invoice appears with one status and that the filter narrows the list. Stop the server by the recorded PID, without piping the stop command into anything. Delete any captured output. **[Agent: python-backend]**
 
 - [ ] **Slice 10: Open one invoice and see the evidence behind its status**
 

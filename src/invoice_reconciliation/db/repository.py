@@ -361,3 +361,48 @@ def get_reconciliation_result(
         (invoice_id,),
     )
     return cursor.fetchone()
+
+
+def list_invoices_with_results(
+    conn: sqlite3.Connection, *, status: str | None = None
+) -> list[sqlite3.Row]:
+    """Return every invoice joined with its reconciliation result, for the queue.
+
+    A ``LEFT JOIN`` so an invoice that has not yet been reconciled (no row
+    in ``reconciliation_results`` yet) still appears, with every result
+    column ``NULL``, rather than being silently dropped from the queue.
+
+    ``status`` is an optional exact-match filter over
+    ``reconciliation_results.status``. An unknown status value simply
+    matches no row — the query returns an empty list, never an error — so
+    the route never needs to validate it against the five known statuses
+    before filtering.
+
+    Ordered by ``received_at`` (ties broken by ``invoice_id``), the same
+    stable order ``pipeline.run_batch`` processes invoices in, so the
+    queue's row order matches the order a reviewer would see them appear
+    in a batch report.
+    """
+    params: tuple[object, ...]
+    if status is None:
+        where_clause = ""
+        params = ()
+    else:
+        where_clause = "WHERE r.status = ?"
+        params = (status,)
+
+    cursor = conn.execute(
+        f"""
+        SELECT i.invoice_id, i.file_id, i.image_path, i.layout,
+               i.received_at, i.extraction_source, i.extraction_failed,
+               r.status, r.expected_cents, r.billed_cents,
+               r.difference_cents, r.count_as_payable, r.matched_po_id,
+               r.matched_receipt_id, r.computed_at
+        FROM invoices i
+        LEFT JOIN reconciliation_results r ON r.invoice_id = i.invoice_id
+        {where_clause}
+        ORDER BY i.received_at ASC, i.invoice_id ASC
+        """,
+        params,
+    )
+    return cursor.fetchall()
