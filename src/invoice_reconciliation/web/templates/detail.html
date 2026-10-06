@@ -6,6 +6,24 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    {% macro provenance_icon(citation) %}
+    {%- if citation and citation.lines -%}
+    <span class="prov" tabindex="0" title="{{ citation.lines | join('\n') }}">
+        <span class="prov-icon" aria-hidden="true">ⓘ</span>
+        <span class="sr-only">Where this value came from</span>
+        <span class="prov-popup" role="tooltip">
+            <ul>
+                {% for line in citation.lines %}
+                <li>{{ line }}</li>
+                {% endfor %}
+            </ul>
+            {% if citation.link %}
+            <a href="{{ citation.link.href }}">{{ citation.link.text }}</a>
+            {% endif %}
+        </span>
+    </span>
+    {%- endif -%}
+    {% endmacro %}
     <p><a href="/invoices">&larr; back to queue</a> &middot; <a href="/summary">summary</a></p>
 
     <h1>{{ invoice.file_id }}</h1>
@@ -32,8 +50,8 @@
                 <thead>
                     <tr>
                         <th>Field</th>
-                        <th>Original</th>
-                        <th>Current</th>
+                        <th>Original {{ provenance_icon(original_column_citation) }}</th>
+                        <th>Current {{ provenance_icon(current_column_citation) }}</th>
                         <th>Correct</th>
                     </tr>
                 </thead>
@@ -42,7 +60,7 @@
                     <tr class="{{ 'field-corrected' if field.is_corrected else '' }}">
                         <td>{{ field.field_name }}</td>
                         <td>{{ field.original_display }}</td>
-                        <td>{{ field.current_display }}</td>
+                        <td>{{ field.current_display }} {{ provenance_icon(field.row_citation) }}</td>
                         <td>
                             <form class="correction-form" method="post"
                                   action="/invoices/{{ invoice.invoice_id }}/fields/{{ field.field_name }}">
@@ -60,7 +78,7 @@
 
     <section class="panel match">
         <h2>Matched purchase order and receipt</h2>
-        {% if match %}
+        {% if match.po_id is defined %}
         <table>
             <thead>
                 <tr>
@@ -75,18 +93,18 @@
             </thead>
             <tbody>
                 <tr>
-                    <td>{{ match.po_id }}</td>
+                    <td>{{ match.po_id }} {{ provenance_icon(match.po_citation) }}</td>
                     <td>{{ match.supplier_id }}</td>
                     <td>{{ match.sku }}</td>
                     <td>{{ match.quantity }}</td>
                     <td>{{ match.unit_price_display }}</td>
-                    <td>{{ match.receipt_id or "–" }}</td>
+                    <td>{{ match.receipt_id or "–" }} {{ provenance_icon(match.receipt_citation) }}</td>
                     <td>{{ match.receipt_quantity if match.receipt_quantity is not none else "–" }}</td>
                 </tr>
             </tbody>
         </table>
         {% else %}
-        <p class="no-match">No matched purchase order.</p>
+        <p class="no-match">No matched purchase order. {{ provenance_icon(match.no_match_citation) }}</p>
         {% endif %}
     </section>
 

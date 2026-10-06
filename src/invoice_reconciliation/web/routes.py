@@ -17,6 +17,7 @@ requests.
 from __future__ import annotations
 
 import mimetypes
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,9 +26,12 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from invoice_reconciliation.db import repository
 from invoice_reconciliation.db.connection import connect
+from invoice_reconciliation.db.ingest import DEFAULT_SEED_PATH
+from invoice_reconciliation.extraction.cache import CacheMissError, ResponseCache
 from invoice_reconciliation.money import MoneyFormatError, cents_to_display
 from invoice_reconciliation.pipeline import recalculate_one
 from invoice_reconciliation.reconciliation.notes import draft_note
+from invoice_reconciliation.web import provenance
 
 __all__ = ["router"]
 
@@ -150,7 +154,37 @@ def list_invoices(request: Request, status: str | None = None) -> HTMLResponse:
     )
 
 
-def _field_rows(original: dict[str, str | None], current: dict[str, str | None]) -> list[dict[str, object]]:
+def _read_cache_entry(*, file_id: str, image_path: Path):
+    """Read the saved model-response cache entry for ``file_id``, or ``None``.
+
+    A ``live`` run writes no cache entry unless ``--refresh-cache`` was
+    passed, and the image file itself might be missing (a ``failed``
+    invoice). Both are ordinary, expected absences here, not errors: the
+    provenance citation simply omits the model id, capture time, and image
+    hash when there is nothing to cite. This function never raises for
+    either case — it is read-only and purely for display.
+    """
+    if not image_path.is_file():
+        return None
+    try:
+        image_bytes = image_path.read_bytes()
+    except OSError:
+        return None
+
+    cache = ResponseCache()
+    try:
+        return cache.get(file_id, image_bytes)
+    except CacheMissError:
+        return None
+
+
+def _field_rows(
+    original: dict[str, str | None],
+    current: dict[str, str | None],
+    *,
+    original_citation: provenance.Citation,
+    corrections_by_field: dict[str, sqlite3.Row],
+) -> list[dict[str, object]]:
     """Pair each of the seven field names with its original and current value.
 
     Both dicts come from ``repository.get_original_fields`` /
@@ -158,39 +192,83 @@ def _field_rows(original: dict[str, str | None], current: dict[str, str | None])
     ``missing-reference`` fixture's null ``po_id``) renders as an en dash,
     not the string "None" — the same placeholder the queue uses for a
     null amount, kept consistent here for a null text field.
+
+    The Original and Current columns each carry one citation on their
+    table header (built once, in ``invoice_detail``, from
+    ``original_citation`` / ``provenance.current_column_citation``) — not
+    per cell. The one exception kept per row: a field that has actually
+    been corrected still carries its own ``row_citation``, naming who
+    corrected it, when, and the previous value, since that is a fact
+    about this specific row, not the column. An uncorrected row's
+    ``row_citation`` is ``None`` and the template renders no icon for it.
+    ``corrections_by_field`` maps a field name to its most recent
+    ``corrections`` row, used to build that per-row citation.
     """
     rows = []
     for field_name in FIELD_NAMES:
         original_value = original.get(field_name)
         current_value = current.get(field_name)
+        is_corrected = original_value != current_value
+        row_citation = None
+        if is_corrected:
+            row_citation = provenance.current_value_citation(
+                is_corrected=is_corrected,
+                original_citation=original_citation,
+                correction=corrections_by_field.get(field_name),
+            )
         rows.append(
             {
                 "field_name": field_name,
                 "original_display": original_value if original_value is not None else "–",
                 "current_display": current_value if current_value is not None else "–",
-                "is_corrected": original_value != current_value,
+                "is_corrected": is_corrected,
+                "row_citation": row_citation,
             }
         )
     return rows
 
 
-def _match_view(purchase_order, receipt) -> dict[str, object] | None:
+def _match_view(purchase_order, receipt, *, po_id_present: bool) -> dict[str, object] | None:
     """Shape the matched purchase order and receipt for the template.
 
     Returns ``None`` when there is no matched purchase order at all (the
     ``unresolved`` case) — the template uses this to render "no matched
-    purchase order" rather than a table of blanks.
+    purchase order" rather than a table of blanks. ``po_id_present``
+    distinguishes, for the no-match citation, "no reference was printed on
+    the invoice" from "a reference was printed but did not match".
     """
     if purchase_order is None:
-        return None
+        return {
+            "no_match_citation": provenance.no_match_citation(po_id_present=po_id_present),
+        }
+
+    unit_price_display = cents_to_display(purchase_order["unit_cents"])
+    po_citation = provenance.matched_po_citation(
+        supplier_id=purchase_order["supplier_id"],
+        po_id=purchase_order["po_id"],
+        seed_path=str(DEFAULT_SEED_PATH),
+        quantity=purchase_order["quantity"],
+        unit_price_display=unit_price_display,
+    )
+    receipt_citation = None
+    if receipt is not None:
+        receipt_citation = provenance.matched_receipt_citation(
+            receipt_id=receipt["receipt_id"],
+            po_id=purchase_order["po_id"],
+            seed_path=str(DEFAULT_SEED_PATH),
+            received_quantity=receipt["quantity"],
+        )
+
     return {
         "po_id": purchase_order["po_id"],
         "supplier_id": purchase_order["supplier_id"],
         "sku": purchase_order["sku"],
         "quantity": purchase_order["quantity"],
-        "unit_price_display": cents_to_display(purchase_order["unit_cents"]),
+        "unit_price_display": unit_price_display,
         "receipt_id": receipt["receipt_id"] if receipt is not None else None,
         "receipt_quantity": receipt["quantity"] if receipt is not None else None,
+        "po_citation": po_citation,
+        "receipt_citation": receipt_citation,
     }
 
 
@@ -230,6 +308,13 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             )
             receipt = repository.get_receipt_for_po(conn, po_id=result_row["matched_po_id"])
 
+        # Most recent correction per field (list_corrections is oldest
+        # first; the last entry per field name is the current one), for
+        # the current-value citation on a corrected field.
+        corrections_by_field: dict[str, sqlite3.Row] = {}
+        for correction_row in repository.list_corrections(conn, invoice_id=invoice_id):
+            corrections_by_field[correction_row["field_name"]] = correction_row
+
         # Draft the note on first view if this invoice has never been seen
         # as discrepant through the web layer before (e.g. it was only ever
         # reconciled by the headless batch command). Idempotent re-running
@@ -247,6 +332,18 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
     expected_cents = result_row["expected_cents"] if result_row is not None else None
     billed_cents = result_row["billed_cents"] if result_row is not None else None
     difference_cents = result_row["difference_cents"] if result_row is not None else None
+
+    cache_entry = _read_cache_entry(
+        file_id=invoice_row["file_id"], image_path=Path(invoice_row["image_path"])
+    )
+    original_citation = provenance.original_value_citation(
+        image_path=invoice_row["image_path"],
+        layout=invoice_row["layout"],
+        extraction_source=invoice_row["extraction_source"],
+        cache_entry=cache_entry,
+        image_url=f"/invoices/{invoice_id}/image",
+    )
+    current_column_citation = provenance.current_column_citation()
 
     invoice_view = {
         "invoice_id": invoice_row["invoice_id"],
@@ -288,8 +385,17 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
         {
             "invoice": invoice_view,
             "status": status,
-            "fields": _field_rows(original_fields, current_fields),
-            "match": _match_view(purchase_order, receipt),
+            "fields": _field_rows(
+                original_fields,
+                current_fields,
+                original_citation=original_citation,
+                corrections_by_field=corrections_by_field,
+            ),
+            "original_column_citation": original_citation,
+            "current_column_citation": current_column_citation,
+            "match": _match_view(
+                purchase_order, receipt, po_id_present=current_fields.get("po_id") is not None
+            ),
             "calculation": calculation,
             "note": note_view,
         },

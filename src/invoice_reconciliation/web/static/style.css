@@ -94,3 +94,84 @@ th, td {
     color: #555;
     font-size: 0.9rem;
 }
+
+/* Provenance citations: a CSS-only (i) tooltip. The `title` attribute
+   covers hover/focus with no CSS at all (works with assistive tech and
+   with CSS disabled); `.prov-popup` additionally shows the full citation,
+   including a real link where one exists, entirely on `:hover`/`:focus` —
+   no JavaScript anywhere in this product. */
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.prov {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+}
+
+/* A column-header citation sits beside the header text, not stacked
+   under a value — nudge it down slightly so the circle aligns with the
+   header's baseline instead of its cap height. */
+th .prov {
+    vertical-align: middle;
+    margin-left: 0.15rem;
+}
+
+.prov-icon {
+    display: inline-block;
+    font-size: 0.85rem;
+    color: #555;
+    border: 1px solid #aaa;
+    border-radius: 50%;
+    width: 1.1em;
+    height: 1.1em;
+    line-height: 1.1em;
+    text-align: center;
+}
+
+.prov-popup {
+    display: none;
+    position: absolute;
+    z-index: 10;
+    top: 1.4em;
+    left: 0;
+    width: max-content;
+    max-width: 22rem;
+    background: #222;
+    color: #fff;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.8rem;
+    font-weight: normal;
+    text-transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.prov-popup ul {
+    margin: 0;
+    padding-left: 1.1rem;
+}
+
+.prov-popup li {
+    margin-bottom: 0.2rem;
+}
+
+.prov-popup a {
+    color: #9ecbff;
+}
+
+.prov:hover .prov-popup,
+.prov:focus .prov-popup,
+.prov:focus-within .prov-popup {
+    display: block;
+}

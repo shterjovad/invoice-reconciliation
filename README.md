@@ -198,6 +198,29 @@ server-side state carried over.
 
 ---
 
+## Time spent
+
+About five and a quarter hours of committed work, against the brief's
+eight-hour budget. The first commit is timestamped 17:25 and the last
+22:39 on 6 October 2026, across 15 commits. That span covers the planning
+documents, the build, the tests, and the submission documents. It does not
+count reading the brief and the starter pack beforehand.
+
+## The suggested process improvement
+
+The `/summary` page states one improvement, drawn from the batch rather
+than from general advice. Its exact text:
+
+> Confirm agreed unit prices against the supplier's price list before
+> invoicing — wrong-price and undercharge both bill a different unit price
+> than the matched purchase order agreed.
+
+Two of the six invoices differ from their purchase order on unit price:
+one above the agreed price and one below. A check at the point of
+invoicing would catch both before they reach reconciliation.
+
+---
+
 ## The rounding rule
 
 The platform stores every money value as a whole integer number of USD
