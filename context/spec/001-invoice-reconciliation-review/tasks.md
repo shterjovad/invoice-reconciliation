@@ -90,14 +90,14 @@ tests — those are the regression suite.
   - [x] Write `tests/unit/test_cache.py`: a hit; a miss when no file exists; a changed image against a stored entry producing a warning and, in replay mode, a failure for that invoice rather than a stale response. **[Agent: testing-expert]**
   - [x] Verify: unset or remove AWS access for the duration of the check, run `python -m invoice_reconciliation.cli --reset-db --from-cache --seed-check`, and report the real output. Confirm the full batch completes with no credentials and the seed check passes. Restore the environment afterwards. Delete any scratch database. **[Agent: testing-expert]**
 
-- [ ] **Slice 8: Continue the batch when one invoice fails**
+- [x] **Slice 8: Continue the batch when one invoice fails**
 
   > A required behaviour. One bad invoice must not cost the reviewer the rest of the run.
 
   - [x] *(Partly done in Slice 4 — `MoneyFormatError` isolation landed early when a defect surfaced. Extraction and cache error types still to add in this slice.)* Wrap each invoice in `pipeline.run_batch` with a `try`/`except` scoped to `ExtractionError`, `CacheMissError` and the SDK error types. Never use a bare `except Exception`; a genuine bug must still surface. A failed invoice gets `status = failed`, no amounts, and a readable reason. **[Agent: python-backend]**
-  - [ ] Make the batch report the failed invoices separately from the seed-check result, and return a non-zero processing signal that does not merge with the seed-check exit code. **[Agent: python-backend]**
-  - [ ] Write `tests/integration/test_failure_isolation.py`: a corrupt or absent cache entry for one invoice leaves the others processed and listed; the failed invoice carries no expected amount and no difference. **[Agent: testing-expert]**
-  - [ ] Verify: corrupt one saved response in a scratch copy of the cache, run the batch from it, and report the real output. Confirm the other invoices still process and the failed one shows a reason. Restore the cache and delete the scratch copy. **[Agent: testing-expert]**
+  - [x] *(Satisfied by Slices 4 and 7; audited 2026-10-06 rather than rebuilt.)* Make the batch report the failed invoices separately from the seed-check result, and return a non-zero processing signal that does not merge with the seed-check exit code. Measured with one cache entry removed: the batch prints `Extraction: 1 invoice(s) FAILED to extract: ['undercharge']` and `Processing: 1 invoice(s) FAILED to process.` above an independent `Seed comparison: PASSED`, and exits 2. The four codes in `cli.py` stay distinct — 0 success, 1 seed-check failed, 2 processing failed, 3 both. **[Agent: python-backend]**
+  - [x] Write `tests/integration/test_failure_isolation.py`: a corrupt or absent cache entry for one invoice leaves the others processed and listed; the failed invoice carries no expected amount and no difference. **[Agent: testing-expert]**
+  - [x] Verify: corrupt one saved response in a scratch copy of the cache, run the batch from it, and report the real output. Confirm the other invoices still process and the failed one shows a reason. Restore the cache and delete the scratch copy. **[Agent: testing-expert]**
 
 - [ ] **Slice 9: Show the invoice queue in a browser**
 
