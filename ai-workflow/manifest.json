@@ -1,0 +1,214 @@
+{
+  "template": false,
+  "instructions": "Filled in from manifest.template.json for the invoice-reconciliation exercise. See README.md in this folder for the full explanation of each entry.",
+  "categories": {
+    "development_tools_and_models": {
+      "status": "used",
+      "files": [],
+      "notes": "Development tool: Claude Code (CLI), model Claude Opus 5, used throughout the build for all coding, planning, and testing work. No IDE plugin or extension was used alongside it."
+    },
+    "plugins_and_extensions": {
+      "status": "not-used",
+      "files": [],
+      "notes": "No editor plugin or browser extension was used. All work went through the Claude Code CLI directly."
+    },
+    "application_models_and_parameters": {
+      "status": "used",
+      "files": ["src/invoice_reconciliation/config.py"],
+      "notes": "This is the in-application model call, separate from the development tool above. Model: us.anthropic.claude-sonnet-4-5-20250929-v1:0, called through classic AWS Bedrock (boto3 bedrock-runtime, invoke_model), region us-east-1. temperature = 0.0, for repeatable extraction on the same invoice image. max_tokens = 1024. Both model_id and region read from the BEDROCK_MODEL_ID and AWS_REGION environment variables first, falling back to these same values as defaults if the variables are unset. See configuration_records for the corrected client-class history (AnthropicBedrockMantle was tried first and found unusable on this account)."
+    },
+    "skills": {
+      "status": "not-used",
+      "files": [],
+      "notes": "No skill was written for this exercise. The repository has three general-purpose skills under .claude/skills/ (fastapi-best-practices, modern-python-development, pytest-best-practices). These are reusable conventions, not exercise-specific work, and existed as organization-level patterns rather than being authored for this task. They are listed under agent_instructions_and_subagents because each subagent's frontmatter declares which of them it applies."
+    },
+    "agent_instructions_and_subagents": {
+      "status": "used",
+      "files": [
+        ".claude/agents/python-backend.md",
+        ".claude/agents/sqlite-database.md",
+        ".claude/agents/bedrock-extraction.md",
+        ".claude/agents/testing-expert.md"
+      ],
+      "notes": "Four custom subagents, each scoped to one layer of the build. python-backend: FastAPI routes, Jinja2 templates, the headless batch command, the reconciliation rules engine, and the money-conversion module (skills: fastapi-best-practices, modern-python-development). sqlite-database: schema and data-access layer, integer-cents money columns, the correction audit trail (skills: modern-python-development). bedrock-extraction: the AWS Bedrock extraction call, the vision prompt, field parsing, and the credential-free response cache (skills: modern-python-development). testing-expert: feature-level acceptance tests mapped to functional-spec.md criteria, run once per feature rather than per slice (skills: pytest-best-practices). All four were genuinely invoked during the build, not drafted and left unused."
+    },
+    "hooks_and_scripts": {
+      "status": "not-used",
+      "files": [],
+      "notes": "No hook was configured for this exercise. .claude/settings.json and .claude/settings.local.json contain no hooks key."
+    },
+    "prompts_and_rules": {
+      "status": "used",
+      "files": [
+        "tasks/invoices/domain.md",
+        "context/product/architecture.md",
+        "context/spec/001-invoice-reconciliation-review/functional-spec.md",
+        "context/spec/001-invoice-reconciliation-review/technical-considerations.md",
+        "context/spec/001-invoice-reconciliation-review/tasks.md"
+      ],
+      "notes": "Project-level markdown files that directed the build: the domain rules for reconciliation and duplicate detection, the architecture decisions (stack, persistence, model choice), and the functional/technical spec and task breakdown for the reviewer-UI feature. These are ordinary repository files, not a separate prompt-injection mechanism, and are already committed at their normal paths."
+    },
+    "tool_and_mcp_settings": {
+      "status": "default",
+      "files": [".mcp.json"],
+      "notes": "Two MCP servers are configured: awos-recruitment (a capability-discovery lookup used during agent setup, not during the invoice-reconciliation build itself) and aws-knowledge-mcp-server (AWS documentation lookup). Neither carries exercise-specific configuration beyond its connection URL, and both are visible in the committed .mcp.json at the repository root. No MCP server was written for this exercise."
+    },
+    "permissions_and_environment_names": {
+      "status": "used",
+      "files": [".env.example"],
+      "notes": "Root .env.example lists the two environment variable names the application reads: AWS_REGION and BEDROCK_MODEL_ID, both optional overrides with in-code defaults (see application_models_and_parameters). No API key variable exists in this project: AWS credentials resolve through the standard AWS credential chain (SigV4), not an application-level secret. .claude/settings.local.json exists and holds a Bash command permission allowlist and an enabled-MCP-servers list; it is not exported here because its allowlist entries embed machine-specific absolute paths (this machine's home-directory name and a per-session scratchpad UUID), which are personal-machine detail rather than exercise configuration. .claude/settings.json (the shared, committed file) contains only the awos-marketplace registry source and is reproduced in full in README.md since it holds nothing sensitive."
+    }
+  },
+  "configuration_records": [
+    {
+      "name": "python-backend",
+      "category": "agent_instructions_and_subagents",
+      "purpose": "FastAPI reviewer UI, headless batch command, reconciliation rules engine, money-conversion module",
+      "original_path_or_scope": ".claude/agents/python-backend.md",
+      "saved_path": ".claude/agents/python-backend.md",
+      "version_or_commit": "committed at HEAD, see git log .claude/agents/python-backend.md",
+      "used_during": "throughout the build, slices 1-14",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "sqlite-database",
+      "category": "agent_instructions_and_subagents",
+      "purpose": "Schema and data-access layer, integer-cents money columns, correction audit trail",
+      "original_path_or_scope": ".claude/agents/sqlite-database.md",
+      "saved_path": ".claude/agents/sqlite-database.md",
+      "version_or_commit": "committed at HEAD, see git log .claude/agents/sqlite-database.md",
+      "used_during": "schema and persistence slices",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "bedrock-extraction",
+      "category": "agent_instructions_and_subagents",
+      "purpose": "AWS Bedrock extraction call, vision prompt, field parsing, response cache for credential-free replay",
+      "original_path_or_scope": ".claude/agents/bedrock-extraction.md",
+      "saved_path": ".claude/agents/bedrock-extraction.md",
+      "version_or_commit": "committed at HEAD, see git log .claude/agents/bedrock-extraction.md",
+      "used_during": "extraction and replay slices, including the AnthropicBedrockMantle-to-classic-Bedrock correction",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "testing-expert",
+      "category": "agent_instructions_and_subagents",
+      "purpose": "Feature-level acceptance tests mapped to functional-spec.md criteria",
+      "original_path_or_scope": ".claude/agents/testing-expert.md",
+      "saved_path": ".claude/agents/testing-expert.md",
+      "version_or_commit": "committed at HEAD, see git log .claude/agents/testing-expert.md",
+      "used_during": "Slice 14, Feature-wide acceptance tests",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "fastapi-best-practices",
+      "category": "skills",
+      "purpose": "General FastAPI conventions (routing, Pydantic schemas, dependency injection); not written for this exercise",
+      "original_path_or_scope": ".claude/skills/fastapi-best-practices/",
+      "saved_path": ".claude/skills/fastapi-best-practices/",
+      "version_or_commit": "committed at HEAD",
+      "used_during": "python-backend subagent invocations",
+      "status": "default",
+      "redactions": []
+    },
+    {
+      "name": "modern-python-development",
+      "category": "skills",
+      "purpose": "General Python 3.12+ idiom reference, applied with 3.11 adjustments per each agent's instructions; not written for this exercise",
+      "original_path_or_scope": ".claude/skills/modern-python-development/",
+      "saved_path": ".claude/skills/modern-python-development/",
+      "version_or_commit": "committed at HEAD",
+      "used_during": "python-backend, sqlite-database, bedrock-extraction subagent invocations",
+      "status": "default",
+      "redactions": []
+    },
+    {
+      "name": "pytest-best-practices",
+      "category": "skills",
+      "purpose": "General pytest fixture and parametrization conventions; not written for this exercise",
+      "original_path_or_scope": ".claude/skills/pytest-best-practices/",
+      "saved_path": ".claude/skills/pytest-best-practices/",
+      "version_or_commit": "committed at HEAD",
+      "used_during": "testing-expert subagent invocations",
+      "status": "default",
+      "redactions": []
+    },
+    {
+      "name": "application model config",
+      "category": "application_models_and_parameters",
+      "purpose": "Single source for the extraction model ID, region, and call parameters",
+      "original_path_or_scope": "src/invoice_reconciliation/config.py",
+      "saved_path": "src/invoice_reconciliation/config.py",
+      "version_or_commit": "committed at HEAD, see git log src/invoice_reconciliation/config.py",
+      "used_during": "every extraction call, live or cached",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "Bedrock client construction",
+      "category": "application_models_and_parameters",
+      "purpose": "Builds the AWS Bedrock client lazily and issues the one live extraction call; records the corrected client-class history (AnthropicBedrockMantle tried and rejected; classic bedrock-runtime via boto3 invoke_model used instead)",
+      "original_path_or_scope": "src/invoice_reconciliation/extraction/client.py",
+      "saved_path": "src/invoice_reconciliation/extraction/client.py",
+      "version_or_commit": "committed at HEAD, see git log src/invoice_reconciliation/extraction/client.py",
+      "used_during": "extraction slices and the --from-cache replay path",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": ".mcp.json",
+      "category": "tool_and_mcp_settings",
+      "purpose": "Declares two MCP servers: awos-recruitment (capability discovery) and aws-knowledge-mcp-server (AWS documentation lookup)",
+      "original_path_or_scope": ".mcp.json",
+      "saved_path": ".mcp.json",
+      "version_or_commit": "committed at HEAD",
+      "used_during": "agent setup (awos-recruitment) and occasional AWS Bedrock documentation lookups (aws-knowledge-mcp-server); neither is part of the application runtime",
+      "status": "default",
+      "redactions": []
+    },
+    {
+      "name": ".claude/settings.json",
+      "category": "permissions_and_environment_names",
+      "purpose": "Declares the awos-marketplace registry source used for agent/skill installation",
+      "original_path_or_scope": ".claude/settings.json",
+      "saved_path": ".claude/settings.json",
+      "version_or_commit": "committed at HEAD",
+      "used_during": "agent and skill installation at project setup",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": ".claude/settings.local.json",
+      "category": "permissions_and_environment_names",
+      "purpose": "Machine-local Bash command permission allowlist and enabled-MCP-server list",
+      "original_path_or_scope": ".claude/settings.local.json",
+      "saved_path": "not exported",
+      "version_or_commit": "not applicable",
+      "used_during": "every session on this machine",
+      "status": "not-exportable",
+      "redactions": [
+        "allowlist entries contain this machine's home-directory name in absolute file paths",
+        "allowlist entries contain a per-session scratchpad directory name (a UUID), which is machine- and session-specific and not reusable"
+      ]
+    },
+    {
+      "name": "root .env.example",
+      "category": "permissions_and_environment_names",
+      "purpose": "Lists the two environment variable names the application reads, with no values",
+      "original_path_or_scope": ".env.example",
+      "saved_path": ".env.example",
+      "version_or_commit": "new file created for this submission",
+      "used_during": "not applicable — documentation only",
+      "status": "used",
+      "redactions": [
+        "no AWS access key, secret key, or session token appears anywhere; credentials resolve through the AWS credential chain outside the application, so there is no credential value to redact"
+      ]
+    }
+  ],
+  "replay_command": "uv run python -m invoice_reconciliation.cli --reset-db --from-cache --seed-check",
+  "workflow_example_path": "ai-workflow/README.md#one-workflow-example"
+}

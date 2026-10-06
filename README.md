@@ -13,6 +13,17 @@ Full design detail is in `context/spec/001-invoice-reconciliation-review/`.
 This file is the entry point for an assessor: what to run, what to expect,
 and what was decided along the way.
 
+### The other documents
+
+| Document | What it is for |
+| --- | --- |
+| [`docs/walkthrough.md`](docs/walkthrough.md) | Approach and findings, in a few minutes. Start here. |
+| [`docs/architecture.md`](docs/architecture.md) | Diagrams: the system, the successful flow, the two failure paths, the data model. Answers where state is stored and which AWS services are used. |
+| [`docs/demo-script.md`](docs/demo-script.md) | Step-by-step demo tables, with likely questions and honest answers. |
+| [`docs/llm-usage-note.md`](docs/llm-usage-note.md) | Tools and models used, and two worked examples of checking and correcting AI output. |
+| [`docs/compliance-audit.md`](docs/compliance-audit.md) | This project audited against the brief, row by row, including what was missing. |
+| [`ai-workflow/manifest.json`](ai-workflow/manifest.json) | The AI configuration used, and how to reproduce it. |
+
 ---
 
 ## Run instructions
@@ -144,7 +155,7 @@ Screenshots from a real run, against the six seeded invoices:
 uv run pytest -q
 ```
 
-136 tests pass.
+159 tests pass.
 
 ---
 
