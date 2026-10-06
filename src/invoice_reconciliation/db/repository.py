@@ -421,6 +421,70 @@ def get_reconciliation_result(
     return cursor.fetchone()
 
 
+def count_results_by_status(conn: sqlite3.Connection) -> dict[str, int]:
+    """Return the number of ``reconciliation_results`` rows per status.
+
+    Keys are only the statuses actually present — an invoice with no
+    result row yet (no entry at all) is not counted under any status. The
+    summary route fills in zero for any of the five known statuses this
+    dict omits, rather than this function inventing zero-rows itself.
+    """
+    cursor = conn.execute(
+        "SELECT status, COUNT(*) AS n FROM reconciliation_results GROUP BY status"
+    )
+    return {row["status"]: row["n"] for row in cursor.fetchall()}
+
+
+def get_recoverable_total_cents(conn: sqlite3.Connection) -> int:
+    """The sum of positive differences on discrepant invoices only.
+
+    ``SUM(difference_cents) WHERE status = 'discrepant' AND
+    difference_cents > 0`` — domain.md: "Do not total duplicates or
+    unresolved matches as recoverable amounts," and a negative difference
+    (an underbill) is not owed back, so it is excluded by the ``> 0``
+    condition rather than being netted against a genuine overcharge.
+    ``SUM`` over zero matching rows returns SQL ``NULL``, read back here as
+    ``0`` — the recoverable total is always a number, never ``None``.
+    """
+    cursor = conn.execute(
+        """
+        SELECT SUM(difference_cents) AS total
+        FROM reconciliation_results
+        WHERE status = 'discrepant' AND difference_cents > 0
+        """
+    )
+    row = cursor.fetchone()
+    total = row["total"]
+    return int(total) if total is not None else 0
+
+
+def list_discrepant_results(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return every discrepant invoice's figures, joined with its file_id
+    and invoice_number, for the summary page's per-difference listing.
+
+    ``invoice_number`` comes from ``extracted_fields`` (its current,
+    possibly corrected, value) rather than from the invoice row itself,
+    matching the same join the matcher and duplicate check use elsewhere.
+    Ordered the same way the queue is (``received_at`` then ``invoice_id``)
+    so the summary lists differences in a stable, predictable order.
+    """
+    cursor = conn.execute(
+        """
+        SELECT i.invoice_id, i.file_id,
+               ef.current_value AS invoice_number,
+               r.matched_po_id, r.expected_cents, r.billed_cents,
+               r.difference_cents
+        FROM reconciliation_results r
+        JOIN invoices i ON i.invoice_id = r.invoice_id
+        LEFT JOIN extracted_fields ef
+            ON ef.invoice_id = i.invoice_id AND ef.field_name = 'invoice_number'
+        WHERE r.status = 'discrepant'
+        ORDER BY i.received_at ASC, i.invoice_id ASC
+        """
+    )
+    return cursor.fetchall()
+
+
 def list_invoices_with_results(
     conn: sqlite3.Connection, *, status: str | None = None
 ) -> list[sqlite3.Row]:
@@ -465,3 +529,91 @@ def list_invoices_with_results(
         params,
     )
     return cursor.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# discrepancy_notes
+# ---------------------------------------------------------------------------
+
+
+def upsert_discrepancy_note(
+    conn: sqlite3.Connection,
+    *,
+    invoice_id: int,
+    drafted_text: str,
+) -> None:
+    """Write the drafted note for a discrepant invoice.
+
+    Called once per recalculation that resolves an invoice to
+    ``discrepant`` (the same point the pipeline persists a
+    ``reconciliation_results`` row). ``INSERT OR REPLACE`` keyed on
+    ``invoice_id``, matching ``upsert_reconciliation_result``'s pattern.
+
+    ``current_text`` starts equal to ``drafted_text`` and
+    ``is_reviewer_edited`` starts ``0`` (false) — the same "two columns
+    side by side" shape ``extracted_fields`` uses for original/current, so
+    the draft stays recoverable even after a reviewer edits the note.
+    ``edited_at`` starts ``NULL`` since no edit has happened yet.
+
+    Overwriting on every recompute means a redraft (e.g. after a field
+    correction changes the figures) replaces the previous draft text. A
+    reviewer's own edit to ``current_text`` is a separate write
+    (``update_discrepancy_note_text``), made only by the note-save route,
+    never by this function.
+    """
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO discrepancy_notes (
+            invoice_id, drafted_text, current_text, is_reviewer_edited, edited_at
+        )
+        VALUES (?, ?, ?, 0, NULL)
+        """,
+        (invoice_id, drafted_text, drafted_text),
+    )
+
+
+def get_discrepancy_note(
+    conn: sqlite3.Connection, *, invoice_id: int
+) -> sqlite3.Row | None:
+    """Look up the discrepancy note row for an invoice, if any.
+
+    ``None`` for any invoice that has never been ``discrepant`` (no row
+    was ever drafted) — this is not an error, just the absence of a note.
+    """
+    cursor = conn.execute(
+        """
+        SELECT invoice_id, drafted_text, current_text, is_reviewer_edited, edited_at
+        FROM discrepancy_notes
+        WHERE invoice_id = ?
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchone()
+
+
+def update_discrepancy_note_text(
+    conn: sqlite3.Connection,
+    *,
+    invoice_id: int,
+    current_text: str,
+    edited_at: str,
+) -> None:
+    """Record a reviewer's edit to a note's text.
+
+    Updates only ``current_text``, ``is_reviewer_edited`` (set to ``1``),
+    and ``edited_at``. ``drafted_text`` is never touched here — exactly
+    the same "the original stays readable beside the current" shape
+    ``update_current_field_value`` keeps for ``extracted_fields``.
+
+    This function performs no reconciliation recompute, and the route
+    that calls it must not call one either: a note edit is a convenience
+    for the reviewer, not a correction to a figure the rules engine reads.
+    """
+    conn.execute(
+        """
+        UPDATE discrepancy_notes
+        SET current_text = ?, is_reviewer_edited = 1, edited_at = ?
+        WHERE invoice_id = ?
+        """,
+        (current_text, edited_at, invoice_id),
+    )

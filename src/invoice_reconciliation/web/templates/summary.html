@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Batch Summary</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <p><a href="/invoices">&larr; back to queue</a></p>
+
+    <h1>Batch Summary</h1>
+
+    <section class="panel status-counts">
+        <h2>Counts per status</h2>
+        <table>
+            <thead>
+                <tr>
+                    {% for status in statuses %}
+                    <th>{{ status }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    {% for status in statuses %}
+                    <td><span class="status status-{{ status }}">{{ status }}</span> {{ status_counts[status] }}</td>
+                    {% endfor %}
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel recoverable-total">
+        <h2>Recoverable total</h2>
+        <p class="recoverable-amount">${{ recoverable_total_display }}</p>
+        <p class="recoverable-hint">
+            The sum of positive differences on discrepant invoices only — an underbill does not
+            offset an overcharge, and nothing here is netted against anything else.
+        </p>
+    </section>
+
+    <section class="panel duplicates-unresolved">
+        <h2>Duplicates and unresolved</h2>
+        <p>
+            {{ status_counts.duplicate }} duplicate invoice(s) and
+            {{ status_counts.unresolved }} unresolved invoice(s) are reported here as counts only.
+            Their value is unknown or not owed, not zero, so neither is included in the recoverable
+            total above.
+        </p>
+    </section>
+
+    <section class="panel differences">
+        <h2>Discrepant invoices and their differences</h2>
+        {% if differences %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Invoice</th>
+                    <th>Invoice number</th>
+                    <th>Purchase order</th>
+                    <th>Difference</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for diff in differences %}
+                <tr>
+                    <td><a href="/invoices/{{ diff.invoice_id }}">{{ diff.file_id }}</a></td>
+                    <td>{{ diff.invoice_number }}</td>
+                    <td>{{ diff.po_id }}</td>
+                    <td class="{{ 'amount-negative' if diff.difference_cents is not none and diff.difference_cents < 0 else '' }}">
+                        {{ diff.difference_display }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No discrepant invoices in this batch.</p>
+        {% endif %}
+    </section>
+
+    <section class="panel improvement">
+        <h2>Suggested improvement</h2>
+        <p>{{ improvement }}</p>
+    </section>
+</body>
+</html>

@@ -370,3 +370,190 @@ def test_image_route_404s_for_a_path_escaping_the_base_directory(
     response = escaping_client.get(f"/invoices/{invoice_id}/image")
     assert response.status_code == 404
     assert b"do not serve this" not in response.content
+
+
+# ---------------------------------------------------------------------------
+# Slice 12: the drafted note, POST /invoices/{id}/note, and GET /summary
+# ---------------------------------------------------------------------------
+
+# No control that would let the product send anything, on either page.
+_SEND_WORDS = ("send", "email", "submit to supplier")
+
+
+def _assert_no_send_control(body: str) -> None:
+    lowered = body.lower()
+    for word in _SEND_WORDS:
+        assert word not in lowered, f"found a send control word {word!r} in the page"
+
+
+def _result(db_path: Path, invoice_id: int):
+    with connect(db_path) as conn:
+        return repository.get_reconciliation_result(conn, invoice_id=invoice_id)
+
+
+def test_discrepant_detail_page_shows_a_drafted_note_naming_invoice_and_po(
+    client: TestClient,
+) -> None:
+    """wrong-price: INV-2 matched to PO-2, billed $120.00 against an
+    agreed $100.00, difference $20.00 — the note must carry all of this,
+    and must offer no send control."""
+    invoice_id = _invoice_id_for(client, "wrong-price")
+    response = client.get(f"/invoices/{invoice_id}")
+    assert response.status_code == 200
+    body = response.text
+
+    assert "Discrepancy note" in body
+    assert "INV-2" in body
+    assert "PO-2" in body
+    assert "120.00" in body
+    assert "100.00" in body
+    assert "20.00" in body
+
+    _assert_no_send_control(body)
+
+
+def test_detail_page_note_contains_no_accusatory_wording(client: TestClient) -> None:
+    invoice_id = _invoice_id_for(client, "wrong-price")
+    response = client.get(f"/invoices/{invoice_id}")
+    body = response.text.lower()
+
+    for word in (
+        "overcharged",
+        "overcharge",
+        "error",
+        "mistake",
+        "fraud",
+        "wrongly",
+        "deliberately",
+    ):
+        assert word not in body, f"found accusatory word {word!r} on the detail page"
+
+
+def test_saving_a_note_edit_does_not_change_the_reconciliation_result(
+    client: TestClient, db_path: Path
+) -> None:
+    invoice_id = _invoice_id_for(client, "wrong-price")
+
+    # View the detail page once first so the note is drafted (the lazy
+    # draft-on-view path) before editing it.
+    client.get(f"/invoices/{invoice_id}")
+    before = _result(db_path, invoice_id)
+
+    response = client.post(
+        f"/invoices/{invoice_id}/note",
+        data={"text": "A reviewer's own words about this invoice."},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    after = _result(db_path, invoice_id)
+    assert dict(before) == dict(after)
+
+
+def test_a_note_edit_persists_and_the_draft_stays_readable_beside_it(
+    client: TestClient, db_path: Path
+) -> None:
+    invoice_id = _invoice_id_for(client, "wrong-price")
+    client.get(f"/invoices/{invoice_id}")  # draft the note first
+
+    with connect(db_path) as conn:
+        original_draft = repository.get_discrepancy_note(conn, invoice_id=invoice_id)[
+            "drafted_text"
+        ]
+
+    edited_text = "Reviewer note: following up with the supplier directly."
+    response = client.post(
+        f"/invoices/{invoice_id}/note", data={"text": edited_text}, follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    with connect(db_path) as conn:
+        note_row = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+
+    assert note_row["current_text"] == edited_text
+    assert note_row["drafted_text"] == original_draft
+    assert bool(note_row["is_reviewer_edited"]) is True
+    assert note_row["edited_at"] is not None
+
+    # The edited text, not the original draft, now shows on the detail page.
+    detail_body = client.get(f"/invoices/{invoice_id}").text
+    assert edited_text in detail_body
+
+
+def test_summary_page_reports_counts_per_status(client: TestClient) -> None:
+    response = client.get("/summary")
+    assert response.status_code == 200
+    body = response.text
+
+    assert "reconciled" in body
+    assert "discrepant" in body
+    assert "duplicate" in body
+    assert "unresolved" in body
+
+
+def test_summary_counts_per_status_are_exact(db_path: Path) -> None:
+    """reconciled 1 (clean), discrepant 3 (wrong-price, quantity-overbill,
+    undercharge), duplicate 1, unresolved 1, failed 0 — read straight from
+    the repository function the route uses, so this states the exact
+    contract independently of the HTML rendering."""
+    with connect(db_path) as conn:
+        counts = repository.count_results_by_status(conn)
+
+    assert counts.get("reconciled", 0) == 1
+    assert counts.get("discrepant", 0) == 3
+    assert counts.get("duplicate", 0) == 1
+    assert counts.get("unresolved", 0) == 1
+    assert counts.get("failed", 0) == 0
+
+
+def test_summary_page_reports_the_recoverable_total_as_80_dollars_not_70(
+    client: TestClient,
+) -> None:
+    """wrong-price (+2000) and quantity-overbill (+6000) are genuine
+    overcharges: 2000 + 6000 = 8000 cents = $80.00. undercharge (-1000) is
+    excluded because it is an underbill, not owed — summing every
+    discrepant difference would wrongly give $70.00 (8000 - 1000 = 7000)."""
+    response = client.get("/summary")
+    assert response.status_code == 200
+    body = response.text
+
+    assert "80.00" in body
+    assert "70.00" not in body
+
+
+def test_summary_page_reports_duplicates_and_unresolved_as_counts_not_money(
+    client: TestClient,
+) -> None:
+    response = client.get("/summary")
+    body = response.text
+
+    assert "1 duplicate invoice" in body
+    assert "1 unresolved invoice" in body
+
+
+def test_summary_page_lists_discrepant_differences_with_amounts(
+    client: TestClient,
+) -> None:
+    response = client.get("/summary")
+    body = response.text
+
+    for file_id in ("wrong-price", "quantity-overbill", "undercharge"):
+        assert file_id in body
+    assert "20.00" in body  # wrong-price
+    assert "60.00" in body  # quantity-overbill
+    assert "-10.00" in body  # undercharge, still visibly negative
+
+
+def test_summary_page_names_an_improvement_citing_specific_invoices(
+    client: TestClient,
+) -> None:
+    response = client.get("/summary")
+    body = response.text
+
+    assert "wrong-price" in body
+    assert "undercharge" in body
+
+
+def test_summary_page_has_no_send_control(client: TestClient) -> None:
+    response = client.get("/summary")
+    _assert_no_send_control(response.text)

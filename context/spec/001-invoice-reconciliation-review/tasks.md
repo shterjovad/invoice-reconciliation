@@ -125,14 +125,14 @@ tests — those are the regression suite.
   - [x] Write `tests/integration/test_correction.py`: correcting the unit price on the discrepant invoice to the agreed price turns it `reconciled` with a difference of zero; the original value remains readable; the result survives a new connection. **[Agent: testing-expert]**
   - [x] Verify: start the server in the background and record its PID. Correct a value through the real route and report the recalculated status and difference. Stop the server, start it again, and confirm the correction and the new result are still there. Stop the server by PID. Delete any captured output. **[Agent: testing-expert]**
 
-- [ ] **Slice 12: Draft a note and summarise the batch**
+- [x] **Slice 12: Draft a note and summarise the batch**
 
   > The last of the required reviewer features.
 
-  - [ ] Write `reconciliation/notes.py`. Draft a short note for a discrepant invoice from the verified figures, naming the invoice number and the purchase-order reference. State no cause and suggest no wrongdoing. **[Agent: python-backend]**
-  - [ ] Add `POST /invoices/{id}/note` to save a reviewer's edit. Provide no send control anywhere. A note edit does not trigger a recalculation. **[Agent: python-backend]**
-  - [ ] Add `GET /summary` and `summary.html`: counts per status, the recoverable total as the sum of positive differences on discrepant invoices only, duplicates and unresolved reported separately, the differences described with their amounts, and one improvement naming the invoices that support it. **[Agent: python-backend]**
-  - [ ] Verify: start the server in the background and record its PID. Report the real summary output. Confirm the recoverable total holds only the genuine overcharge and excludes the duplicate, the unresolved invoice and the underbill. Open a discrepant invoice and confirm the draft note cites its records and offers no send control. Stop the server by PID. Delete any captured output. **[Agent: python-backend]**
+  - [x] Write `reconciliation/notes.py`. Draft a short note for a discrepant invoice from the verified figures, naming the invoice number and the purchase-order reference. State no cause and suggest no wrongdoing. **[Agent: python-backend]**
+  - [x] Add `POST /invoices/{id}/note` to save a reviewer's edit. Provide no send control anywhere. A note edit does not trigger a recalculation. **[Agent: python-backend]**
+  - [x] Add `GET /summary` and `summary.html`: counts per status, the recoverable total as the sum of positive differences on discrepant invoices only, duplicates and unresolved reported separately, the differences described with their amounts, and one improvement naming the invoices that support it. **[Agent: python-backend]**
+  - [x] Verify: start the server in the background and record its PID. Report the real summary output. Confirm the recoverable total holds only the genuine overcharge and excludes the duplicate, the unresolved invoice and the underbill. Open a discrepant invoice and confirm the draft note cites its records and offers no send control. Stop the server by PID. Delete any captured output. **[Agent: python-backend]**
 
 - [ ] **Slice 13: Report the demonstration results**
 

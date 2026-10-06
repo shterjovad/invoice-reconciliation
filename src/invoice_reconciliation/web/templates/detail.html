@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <p><a href="/invoices">&larr; back to queue</a></p>
+    <p><a href="/invoices">&larr; back to queue</a> &middot; <a href="/summary">summary</a></p>
 
     <h1>{{ invoice.file_id }}</h1>
     <p>
@@ -118,5 +118,25 @@
         <p class="no-amount">No expected amount — this invoice has no matched purchase order.</p>
         {% endif %}
     </section>
+
+    {% if note %}
+    <section class="panel discrepancy-note">
+        <h2>Discrepancy note (draft)</h2>
+        <p class="note-hint">
+            A drafted note for your own reference. Edit it and use it however you decide.
+        </p>
+        <form method="post" action="/invoices/{{ invoice.invoice_id }}/note">
+            <textarea name="text" rows="4" cols="80">{{ note.current_text }}</textarea>
+            <br>
+            <button type="submit">Save note</button>
+        </form>
+        {% if note.is_reviewer_edited %}
+        <details class="note-original">
+            <summary>Original draft</summary>
+            <p>{{ note.drafted_text }}</p>
+        </details>
+        {% endif %}
+    </section>
+    {% endif %}
 </body>
 </html>

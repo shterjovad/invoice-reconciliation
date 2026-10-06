@@ -27,6 +27,7 @@ from invoice_reconciliation.db import repository
 from invoice_reconciliation.db.connection import connect
 from invoice_reconciliation.money import MoneyFormatError, cents_to_display
 from invoice_reconciliation.pipeline import recalculate_one
+from invoice_reconciliation.reconciliation.notes import draft_note
 
 __all__ = ["router"]
 
@@ -229,6 +230,19 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             )
             receipt = repository.get_receipt_for_po(conn, po_id=result_row["matched_po_id"])
 
+        # Draft the note on first view if this invoice has never been seen
+        # as discrepant through the web layer before (e.g. it was only ever
+        # reconciled by the headless batch command). Idempotent re-running
+        # this on every view is harmless — it only overwrites
+        # ``drafted_text``/``current_text`` when no note row exists yet,
+        # a reviewer edit below is read back in a separate query, never
+        # clobbered by this call.
+        if result_row is not None and result_row["status"] == "discrepant":
+            existing_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+            if existing_note is None:
+                _ensure_discrepancy_note(conn, invoice_id)
+        note_row = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+
     status = result_row["status"] if result_row is not None else None
     expected_cents = result_row["expected_cents"] if result_row is not None else None
     billed_cents = result_row["billed_cents"] if result_row is not None else None
@@ -259,6 +273,14 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
         "has_amounts": expected_cents is not None and billed_cents is not None,
     }
 
+    note_view = None
+    if note_row is not None:
+        note_view = {
+            "drafted_text": note_row["drafted_text"],
+            "current_text": note_row["current_text"],
+            "is_reviewer_edited": bool(note_row["is_reviewer_edited"]),
+        }
+
     templates = request.app.state.templates
     return templates.TemplateResponse(
         request,
@@ -269,6 +291,7 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             "fields": _field_rows(original_fields, current_fields),
             "match": _match_view(purchase_order, receipt),
             "calculation": calculation,
+            "note": note_view,
         },
     )
 
@@ -321,6 +344,73 @@ def invoice_image(request: Request, invoice_id: int) -> FileResponse:
 def _now_iso() -> str:
     """Current UTC timestamp in ISO-8601, matching ``pipeline._now_iso``'s format."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_discrepancy_note(conn, invoice_id: int) -> None:
+    """Draft (or redraft) the discrepancy note for ``invoice_id``, if it is
+    currently ``discrepant``.
+
+    This is not a second reconciliation path: it reads the figures
+    ``pipeline.recalculate_one`` already computed and persisted, and calls
+    the pure ``notes.draft_note`` on them — no status decision and no
+    money arithmetic happens here. Called from both the detail route (so
+    an invoice reconciled only by the headless batch command, never
+    through a web correction, still has a note to show) and the
+    correction route (so a correction that changes the figures redrafts
+    the note rather than leaving a stale one).
+
+    A redraft always overwrites ``drafted_text`` (``repository.
+    upsert_discrepancy_note`` resets ``current_text`` to match and clears
+    any reviewer edit flag) — a correction to the underlying figures means
+    the previous draft no longer describes the invoice, and a reviewer's
+    edit to the previous draft no longer applies to the new figures
+    either. This mirrors the correction route itself: a value change
+    invalidates the previous computed state rather than patching around
+    it.
+
+    A non-``discrepant`` invoice (reconciled, duplicate, unresolved,
+    failed) is left with no note row at all — nothing to draft, since
+    there is no difference to describe. An invoice that *was* discrepant
+    and a correction resolved it (no longer discrepant) is not cleaned
+    up here: that is a deliberate no-op, left as a recorded gap rather
+    than silently deleting history, since no route in this slice reads a
+    stale note for a non-discrepant invoice (the detail and summary
+    templates only ever ask for a note when ``status == "discrepant"``).
+    """
+    result_row = repository.get_reconciliation_result(conn, invoice_id=invoice_id)
+    if result_row is None or result_row["status"] != "discrepant":
+        return
+
+    current_fields = repository.get_current_fields(conn, invoice_id=invoice_id)
+    invoice_number = current_fields.get("invoice_number") or "–"
+    po_id = result_row["matched_po_id"] or "–"
+
+    purchase_order = None
+    supplier_id = current_fields.get("supplier_id")
+    if supplier_id is not None and result_row["matched_po_id"] is not None:
+        purchase_order = repository.get_purchase_order(
+            conn, supplier_id=supplier_id, po_id=result_row["matched_po_id"]
+        )
+
+    # The matched purchase order is looked up above rather than parsed
+    # from current_fields' own quantity/unit_cents text, for the same
+    # reason rules.reconcile computes expected_cents from the purchase
+    # order: the agreed quantity and unit price are the PO's, never the
+    # invoice's own (possibly different, possibly corrected-but-still-
+    # discrepant) claimed values.
+    quantity = int(purchase_order["quantity"]) if purchase_order is not None else 0
+    unit_cents = int(purchase_order["unit_cents"]) if purchase_order is not None else 0
+
+    drafted_text = draft_note(
+        invoice_number=invoice_number,
+        po_id=po_id,
+        quantity=quantity,
+        unit_cents=unit_cents,
+        expected_cents=result_row["expected_cents"],
+        billed_cents=result_row["billed_cents"],
+        difference_cents=result_row["difference_cents"],
+    )
+    repository.upsert_discrepancy_note(conn, invoice_id=invoice_id, drafted_text=drafted_text)
 
 
 def _validate_field_value(field_name: str, raw_value: str) -> str:
@@ -449,6 +539,146 @@ def correct_field(
             # a future change to that contract so a correction never 500s.
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+        # Redraft the note from the new figures. A correction to an
+        # extracted value is exactly the case ``_ensure_discrepancy_note``'s
+        # docstring describes as invalidating the previous draft — this is
+        # the one caller that unconditionally redrafts rather than only
+        # drafting when no note exists yet (the detail route's lazy path).
+        _ensure_discrepancy_note(conn, invoice_id)
+
     return RedirectResponse(
         url=f"/invoices/{invoice_id}", status_code=303
+    )
+
+
+@router.post("/invoices/{invoice_id}/note")
+def save_note(
+    request: Request,
+    invoice_id: int,
+    text: str = Form(...),
+) -> RedirectResponse:
+    """Save a reviewer's edit to a discrepant invoice's note.
+
+    This route only ever writes ``discrepancy_notes.current_text`` (by way
+    of ``repository.update_discrepancy_note_text``). It never calls
+    ``pipeline.recalculate_one`` and never touches ``reconciliation_results``
+    or ``extracted_fields`` — a note is commentary on an already-computed
+    result, not an input to one, so editing it must not change the
+    reconciliation outcome (``technical-considerations.md`` section 5:
+    "a reviewer's edit to a draft note does not trigger a recalculation").
+
+    There is deliberately no send action anywhere in this product: this
+    route (and every template) only ever drafts and saves text for a human
+    to use elsewhere. No "send", "email", or "submit to supplier" route
+    exists in this router.
+
+    A blank edit is rejected (422) the same way a blank field correction
+    is — an edit supplies replacement text, not an intentional empty note.
+
+    A nonexistent invoice id, or an invoice with no note row yet (never
+    discrepant, or discrepant but not yet viewed so no draft exists), is a
+    404: there is nothing to attach this edit to.
+    """
+    db_path = get_db_path(request)
+    with connect(db_path) as conn:
+        invoice_row = repository.get_invoice(conn, invoice_id=invoice_id)
+        if invoice_row is None:
+            raise HTTPException(status_code=404, detail="invoice not found")
+
+        existing_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+        if existing_note is None:
+            raise HTTPException(status_code=404, detail="no note drafted for this invoice")
+
+        new_text = text.strip()
+        if not new_text:
+            raise HTTPException(status_code=422, detail="note text must not be blank")
+
+        repository.update_discrepancy_note_text(
+            conn,
+            invoice_id=invoice_id,
+            current_text=new_text,
+            edited_at=_now_iso(),
+        )
+
+    return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# GET /summary
+# ---------------------------------------------------------------------------
+
+# One suggested improvement, named with the invoices that support it. This
+# is static text, not computed from the database, because "one
+# improvement" is a product recommendation (a sentence a human wrote about
+# a recurring pattern in the seed set), not a figure the rules engine
+# derives. It names the two discrepant invoices whose root difference is a
+# unit-price mismatch rather than a quantity mismatch, since those are the
+# cases a supplier-side price-list check would catch before the invoice
+# ever reaches a reviewer. Kept as a module-level constant (not parameters
+# threaded through the route) since nothing in this slice asks for a
+# second improvement to choose between.
+_SUGGESTED_IMPROVEMENT = (
+    "Confirm agreed unit prices against the supplier's price list before "
+    "invoicing — wrong-price and undercharge both bill a different unit "
+    "price than the matched purchase order agreed."
+)
+
+
+@router.get("/summary", response_class=HTMLResponse)
+def summary(request: Request) -> HTMLResponse:
+    """The batch summary: counts per status, the recoverable total, and
+    each discrepant invoice's difference.
+
+    Reads only what ``pipeline.run_batch`` / ``recalculate_one`` already
+    persisted — no reconciliation logic lives here. Three read-only
+    repository calls:
+
+    - ``count_results_by_status`` for the per-status counts (filled in
+      with 0 for any of the five known statuses with no rows at all,
+      rather than the template needing to handle a missing key).
+    - ``get_recoverable_total_cents`` for the sum of positive differences
+      on discrepant invoices only (``SUM(difference_cents) WHERE status =
+      'discrepant' AND difference_cents > 0``) — this is computed by SQL
+      in the repository layer, not by summing Python-side here, so there
+      is exactly one place that condition is expressed.
+    - ``list_discrepant_results`` for the per-invoice difference listing,
+      each amount rendered through ``_display_amount`` /
+      ``money.cents_to_display`` like every other money value in this
+      layer.
+
+    Duplicates and unresolved are reported as counts only, on this same
+    page, never folded into the recoverable total or given a dollar
+    figure of any kind — their value is unknown or not owed, not zero.
+    """
+    db_path = get_db_path(request)
+    with connect(db_path) as conn:
+        status_counts_raw = repository.count_results_by_status(conn)
+        recoverable_total_cents = repository.get_recoverable_total_cents(conn)
+        discrepant_rows = repository.list_discrepant_results(conn)
+
+    status_counts = {status: status_counts_raw.get(status, 0) for status in STATUSES}
+
+    differences = [
+        {
+            "invoice_id": row["invoice_id"],
+            "file_id": row["file_id"],
+            "invoice_number": row["invoice_number"] or "–",
+            "po_id": row["matched_po_id"] or "–",
+            "difference_display": _display_amount(row["difference_cents"]),
+            "difference_cents": row["difference_cents"],
+        }
+        for row in discrepant_rows
+    ]
+
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "summary.html",
+        {
+            "status_counts": status_counts,
+            "statuses": STATUSES,
+            "recoverable_total_display": cents_to_display(recoverable_total_cents),
+            "differences": differences,
+            "improvement": _SUGGESTED_IMPROVEMENT,
+        },
     )
