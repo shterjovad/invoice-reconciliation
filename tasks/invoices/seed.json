@@ -73,6 +73,28 @@
       "unit_cents": 2000,
       "total_cents": 10000,
       "layout": "b"
+    },
+    {
+      "file_id": "quantity-overbill",
+      "invoice_number": "INV-4",
+      "supplier_id": "S1",
+      "po_id": "PO-1",
+      "sku": "CAB-1",
+      "quantity": 8,
+      "unit_cents": 2000,
+      "total_cents": 16000,
+      "layout": "a"
+    },
+    {
+      "file_id": "undercharge",
+      "invoice_number": "INV-5",
+      "supplier_id": "S1",
+      "po_id": "PO-2",
+      "sku": "CAB-1",
+      "quantity": 5,
+      "unit_cents": 1800,
+      "total_cents": 9000,
+      "layout": "b"
     }
   ]
 }

@@ -13,65 +13,75 @@ tests — those are the regression suite.
 
 ---
 
-- [ ] **Slice 1: Convert money without losing a cent**
+- [x] **Slice 1: Convert money without losing a cent**
 
   > The smallest piece of real value, and the highest-risk module in the build.
 
-  - [ ] Create the project with `uv`: `pyproject.toml`, Python 3.11, and the `src/invoice_reconciliation/` package. Declare `pytest` and `Pillow >= 10.1`. Do not add a Dockerfile or any CI file. **[Agent: python-backend]**
-  - [ ] Write `src/invoice_reconciliation/money.py` with `dollars_to_cents(v: str | float | int) -> int` and `cents_to_display(cents: int) -> str`. For a numeric input, format with `f"{v:.2f}"` before splitting on the decimal point. Never call `float()` on a string. Raise `MoneyFormatError` on over-precision such as `"24.999"`, on malformed input, and on `None`. **[Agent: python-backend]**
-  - [ ] Write `tests/unit/test_money.py` covering the full table from technical-considerations.md section 2.3: `"24.00"`, `"120.00"`, `"5.5"`, `"5"`, `"0.09"`, `"-12.50"`, the numeric forms `24.0`, `120.0` and `5`, plus the raising cases `"24.999"`, `""`, `"abc"` and `None`. **[Agent: testing-expert]**
-  - [ ] Verify: run `pytest tests/unit/test_money.py -v` and report the real output. Confirm every row passes, including the three numeric rows. Grep the source for `float(` and confirm no money path calls it. Delete any temporary files the check produced. **[Agent: testing-expert]**
+  - [x] Create the project with `uv`: `pyproject.toml`, Python 3.11, and the `src/invoice_reconciliation/` package. Declare `pytest` and `Pillow >= 10.1`. Do not add a Dockerfile or any CI file. **[Agent: python-backend]**
+  - [x] Write `src/invoice_reconciliation/money.py` with `dollars_to_cents(v: str | float | int) -> int` and `cents_to_display(cents: int) -> str`. For a numeric input, format with `f"{v:.2f}"` before splitting on the decimal point. Never call `float()` on a string. Raise `MoneyFormatError` on over-precision such as `"24.999"`, on malformed input, and on `None`. **[Agent: python-backend]**
+  - [x] Write `tests/unit/test_money.py` covering the full table from technical-considerations.md section 2.3: `"24.00"`, `"120.00"`, `"5.5"`, `"5"`, `"0.09"`, `"-12.50"`, the numeric forms `24.0`, `120.0` and `5`, plus the raising cases `"24.999"`, `""`, `"abc"` and `None`. **[Agent: testing-expert]**
+  - [x] Verify: run `pytest tests/unit/test_money.py -v` and report the real output. Confirm every row passes, including the three numeric rows. Grep the source for `float(` and confirm no money path calls it. Delete any temporary files the check produced. **[Agent: testing-expert]**
 
-- [ ] **Slice 2: Hold the reference data and rebuild it from the fixtures**
+- [x] **Slice 2: Hold the reference data and rebuild it from the fixtures**
 
   > After this slice the database exists and reloads from `seed.json` on demand.
 
-  - [ ] Write `src/invoice_reconciliation/db/connection.py` and `db/schema.py`. Create the seven tables from technical-considerations.md section 2.2. Every money column is `INTEGER`. `status` carries a `CHECK` over the five values. Add the four indexes. Set `PRAGMA foreign_keys=ON`. **[Agent: sqlite-database]**
-  - [ ] Write `src/invoice_reconciliation/db/repository.py` with the read and write functions for purchase orders, receipts and invoices. Keep the SQL explicit and parameterised. **[Agent: sqlite-database]**
-  - [ ] Write the ingest step that loads `tasks/invoices/seed.json` into the database, and a `--reset-db` path that drops and rebuilds it. The database is a rebuildable artifact; the fixtures are the source of truth. **[Agent: sqlite-database]**
-  - [ ] Verify: run the ingest, then query the database with `sqlite3` and report the real rows. Confirm two purchase orders, two receipts, and that `unit_cents` holds integers and not text or floats. Run it twice and confirm the second run gives the same result. Delete any scratch database file the check created. **[Agent: sqlite-database]**
+  - [x] Write `src/invoice_reconciliation/db/connection.py` and `db/schema.py`. Create the seven tables from technical-considerations.md section 2.2. Every money column is `INTEGER`. `status` carries a `CHECK` over the five values. Add the four indexes. Set `PRAGMA foreign_keys=ON`. **[Agent: sqlite-database]**
+  - [x] Write `src/invoice_reconciliation/db/repository.py` with the read and write functions for purchase orders, receipts and invoices. Keep the SQL explicit and parameterised. **[Agent: sqlite-database]**
+  - [x] Write the ingest step that loads `tasks/invoices/seed.json` into the database, and a `--reset-db` path that drops and rebuilds it. The database is a rebuildable artifact; the fixtures are the source of truth. **[Agent: sqlite-database]**
+  - [x] Verify: run the ingest, then query the database with `sqlite3` and report the real rows. Confirm two purchase orders, two receipts, and that `unit_cents` holds integers and not text or floats. Run it twice and confirm the second run gives the same result. Delete any scratch database file the check created. **[Agent: sqlite-database]**
 
-- [ ] **Slice 3: Match an invoice to its purchase order and receipt**
+- [x] **Slice 3: Match an invoice to its purchase order and receipt**
 
   > The first reconciliation behaviour. It proves the trap case: two purchase orders identical apart from their ID.
 
-  - [ ] Write `src/invoice_reconciliation/reconciliation/matcher.py`. Match on `supplier_id` **and** `po_id` together, reading them from `extracted_fields.current_value`. Never match on amount. Add `find_earlier_duplicate(supplier_id, invoice_number)` ordered by `received_at`. **[Agent: python-backend]**
-  - [ ] Extend the ingest to load the four supplied invoice records from `seed.json` into `invoices` and `extracted_fields`, writing the same value to `original_value` and `current_value`. This gives the rules engine real input before extraction exists. **[Agent: sqlite-database]**
-  - [ ] Write `tests/unit/test_matcher.py`: an invoice naming `PO-2` matches `PO-2` and not `PO-1`, although the two orders agree on supplier, SKU, quantity and price. A null `po_id` matches nothing. A purchase order under a different supplier does not match. **[Agent: testing-expert]**
-  - [ ] Verify: run `pytest tests/unit/test_matcher.py -v` and report the real output. Confirm the near-identical purchase orders stay separate. Delete any temporary files. **[Agent: testing-expert]**
+  - [x] Write `src/invoice_reconciliation/reconciliation/matcher.py`. Match on `supplier_id` **and** `po_id` together, reading them from `extracted_fields.current_value`. Never match on amount. Add `find_earlier_duplicate(supplier_id, invoice_number)` ordered by `received_at`. **[Agent: python-backend]**
+  - [x] Extend the ingest to load the four supplied invoice records from `seed.json` into `invoices` and `extracted_fields`, writing the same value to `original_value` and `current_value`. This gives the rules engine real input before extraction exists. **[Agent: sqlite-database]**
+  - [x] Write `tests/unit/test_matcher.py`: an invoice naming `PO-2` matches `PO-2` and not `PO-1`, although the two orders agree on supplier, SKU, quantity and price. A null `po_id` matches nothing. A purchase order under a different supplier does not match. **[Agent: testing-expert]**
+  - [x] Verify: run `pytest tests/unit/test_matcher.py -v` and report the real output. Confirm the near-identical purchase orders stay separate. Delete any temporary files. **[Agent: testing-expert]**
 
-- [ ] **Slice 4: Give every invoice a status and the exact difference**
+- [x] **Slice 4: Give every invoice a status and the exact difference**
 
   > After this slice the four supplied invoices reproduce the supplied answers. This is the core of the exercise.
 
-  - [ ] Write `src/invoice_reconciliation/reconciliation/rules.py` as one pure function with no input or output. Apply the order in technical-considerations.md section 2.5: failed, then unresolved, then duplicate, then compute, then classify. `expected_cents = ordered_quantity * unit_cents`. `difference_cents = billed_cents - expected_cents`. A quantity mismatch gives `discrepant`, valued at the agreed unit price. A negative difference gives `discrepant`. **[Agent: python-backend]**
-  - [ ] Write `src/invoice_reconciliation/pipeline.py` with `run_batch()` and `recalculate_one(invoice_id)`. These are the only functions that call the rules engine together with the repository. Both the batch command and the web view will call them. **[Agent: python-backend]**
-  - [ ] Write `src/invoice_reconciliation/seed_check.py`. Compare against the **exact per-status record shape** of `tasks/invoices/expected-seed-results.json`: a `duplicate` record carries `count_as_payable` and omits the cent keys; an `unresolved` record carries explicit `null` for `expected_cents` and `difference_cents` and omits `billed_cents`. Do not normalise. Print a per-case difference and return exit code 0 or 1. **[Agent: python-backend]**
-  - [ ] Write `src/invoice_reconciliation/cli.py` with the flags from technical-considerations.md section 2.7. Keep the seed-check signal separate from the processing-failure signal; one exit code must not merge them. **[Agent: python-backend]**
-  - [ ] Write `tests/unit/test_rules.py` covering each of the five statuses, the recoverable total excluding duplicates, unresolved, failed and negative differences, and a `duplicate` first copy staying payable. **[Agent: testing-expert]**
-  - [ ] Verify: run `python -m invoice_reconciliation.cli --reset-db --seed-check` and report the real output. Confirm all four supplied invoices reproduce `expected-seed-results.json` exactly and the exit code is 0. Then edit one expected value in a scratch copy, re-run, and confirm the check reports that failure rather than passing. Delete the scratch copy. **[Agent: testing-expert]**
+  - [x] Write `src/invoice_reconciliation/reconciliation/rules.py` as one pure function with no input or output. Apply the order in technical-considerations.md section 2.5: failed, then unresolved, then duplicate, then compute, then classify. `expected_cents = ordered_quantity * unit_cents`. `difference_cents = billed_cents - expected_cents`. A quantity mismatch gives `discrepant`, valued at the agreed unit price. A negative difference gives `discrepant`. **[Agent: python-backend]**
+  - [x] Write `src/invoice_reconciliation/pipeline.py` with `run_batch()` and `recalculate_one(invoice_id)`. These are the only functions that call the rules engine together with the repository. Both the batch command and the web view will call them. **[Agent: python-backend]**
+  - [x] Write `src/invoice_reconciliation/seed_check.py`. Compare against the **exact per-status record shape** of `tasks/invoices/expected-seed-results.json`: a `duplicate` record carries `count_as_payable` and omits the cent keys; an `unresolved` record carries explicit `null` for `expected_cents` and `difference_cents` and omits `billed_cents`. Do not normalise. Print a per-case difference and return exit code 0 or 1. **[Agent: python-backend]**
+  - [x] Write `src/invoice_reconciliation/cli.py` with the flags from technical-considerations.md section 2.7. Keep the seed-check signal separate from the processing-failure signal; one exit code must not merge them. **[Agent: python-backend]**
+  - [x] Write `tests/unit/test_rules.py` covering each of the five statuses, the recoverable total excluding duplicates, unresolved, failed and negative differences, and a `duplicate` first copy staying payable. **[Agent: testing-expert]**
+  - [x] Verify: run `python -m invoice_reconciliation.cli --reset-db --seed-check` and report the real output. Confirm all four supplied invoices reproduce `expected-seed-results.json` exactly and the exit code is 0. Then edit one expected value in a scratch copy, re-run, and confirm the check reports that failure rather than passing. Delete the scratch copy. **[Agent: testing-expert]**
 
-- [ ] **Slice 5: Add the fixture records that test the undecided rules**
+- [x] **Slice 5: Add the fixture records that test the undecided rules**
 
   > The supplied data cannot falsify two settled decisions. This slice adds records that can. Images come later, in Slice 7.
 
-  - [ ] Extend `tasks/invoices/seed.json` with an invoice that bills more units than were ordered and received, and an invoice that bills less than the agreed amount. Keep the four supplied invoices unchanged. Use the supplied rules; invent no new ones. **[Agent: python-backend]**
-  - [ ] Write the expected answers for both new invoices by hand into a separate file from any output of the product. Show the arithmetic in a comment or a short note so a reviewer can check it. **[Agent: python-backend]**
-  - [ ] Write `tests/unit/test_settled_rules.py`: the over-quantity invoice gives `discrepant` with the difference valued at the agreed unit price; the underbill gives `discrepant` with a negative difference; the recoverable total excludes that negative. **[Agent: testing-expert]**
-  - [ ] Verify: run the batch and the new tests, and report the real output. Confirm the two new invoices give the hand-calculated answers and that the four supplied invoices still reproduce their original results. Delete any temporary files. **[Agent: testing-expert]**
+  - [x] Extend `tasks/invoices/seed.json` with an invoice that bills more units than were ordered and received, and an invoice that bills less than the agreed amount. Keep the four supplied invoices unchanged. Use the supplied rules; invent no new ones. **[Agent: python-backend]**
+  - [x] Write the expected answers for both new invoices by hand into a separate file from any output of the product. Show the arithmetic in a comment or a short note so a reviewer can check it. **[Agent: python-backend]**
+  - [x] Write `tests/unit/test_settled_rules.py`: the over-quantity invoice gives `discrepant` with the difference valued at the agreed unit price; the underbill gives `discrepant` with a negative difference; the recoverable total excludes that negative. **[Agent: testing-expert]**
+  - [x] Verify: run the batch and the new tests, and report the real output. Confirm the two new invoices give the hand-calculated answers and that the four supplied invoices still reproduce their original results. Delete any temporary files. **[Agent: testing-expert]**
 
-- [ ] **Slice 6: Read the values from a real invoice image**
+- [x] **Slice 6: Read the values from a real invoice image**
 
   > The first live model call. After this slice the pipeline runs from documents rather than prepared records.
 
-  - [ ] Write `src/invoice_reconciliation/config.py` with the frozen `ModelConfig`: model id `us.anthropic.claude-sonnet-4-5-20250929-v1:0`, region `us-east-1`, `max_tokens`, and `temperature = 0.0`. Read `AWS_REGION` and `BEDROCK_MODEL_ID` from the environment with these as defaults. **[Agent: bedrock-extraction]**
-  - [ ] Write `extraction/client.py` using **`AnthropicBedrockMantle(aws_region="us-east-1")`** — not `AnthropicBedrock`. Build the client lazily, inside the live path only, so a replay run never touches the credential chain. **[Agent: bedrock-extraction]**
-  - [ ] Write `extraction/prompt.py` and `extraction/schema.py`. Type the money fields as `"string"` to remove the measured type variance. Type `po_id` as `["string", "null"]` and required. The prompt must tell the model to read by field label and not by position, and to set `po_id` to `null` when no reference is printed rather than guessing. **[Agent: bedrock-extraction]**
-  - [ ] Write `extraction/parser.py` as a pure function: shape check, schema check, then a domain check that **delegates money validation to `money.dollars_to_cents`** rather than applying its own regular expression. Raise a specific `ExtractionError` subclass per failure. **[Agent: bedrock-extraction]**
-  - [ ] Replace the prepared-record ingest with the extraction path in `pipeline.py`. The values now come from the model and flow into `extracted_fields.original_value` and `current_value`. **[Agent: python-backend]**
-  - [ ] Verify: run one live extraction against `tasks/invoices/images/wrong-price.png` and report the seven real values returned. Confirm the money fields arrive as strings and that `po_id` is `null` for `missing-reference.png`. Record the token counts. Delete any temporary output. **[Agent: bedrock-extraction]**
+  - [x] Write `src/invoice_reconciliation/config.py` with the frozen `ModelConfig`: model id `us.anthropic.claude-sonnet-4-5-20250929-v1:0`, region `us-east-1`, `max_tokens`, and `temperature = 0.0`. Read `AWS_REGION` and `BEDROCK_MODEL_ID` from the environment with these as defaults. **[Agent: bedrock-extraction]**
+  - [x] Write `extraction/client.py` using the classic **`boto3` `bedrock-runtime`** client with `invoke_model` and the `anthropic_version: "bedrock-2023-05-31"` body. **Corrected 2026-10-06:** this task previously required `AnthropicBedrockMantle`, which was tested and returns `404` for every model on this account — it is a separate AWS service with a separate entitlement. Build the client lazily, inside the live path only, so a replay run never touches the credential chain. **[Agent: bedrock-extraction]**
+  - [x] Write `extraction/prompt.py` and `extraction/schema.py`. Type the money fields as `"string"` to remove the measured type variance. Type `po_id` as `["string", "null"]` and required. The prompt must tell the model to read by field label and not by position, and to set `po_id` to `null` when no reference is printed rather than guessing. **[Agent: bedrock-extraction]**
+  - [x] Write `extraction/parser.py` as a pure function: shape check, schema check, then a domain check that **delegates money validation to `money.dollars_to_cents`** rather than applying its own regular expression. Raise a specific `ExtractionError` subclass per failure. **[Agent: bedrock-extraction]**
+  - [x] Replace the prepared-record ingest with the extraction path in `pipeline.py`. The values now come from the model and flow into `extracted_fields.original_value` and `current_value`. **[Agent: python-backend]**
+  - [x] Verify: run one live extraction against `tasks/invoices/images/wrong-price.png` and report the seven real values returned. Confirm the money fields arrive as strings and that `po_id` is `null` for `missing-reference.png`. Record the token counts. Delete any temporary output. **[Agent: bedrock-extraction]**
 
 - [ ] **Slice 7: Replay saved responses without credentials**
+
+  > **Carried over from Slice 6, found 2026-10-06.** Under `--extract`, an invoice whose image is
+  > missing (or whose extraction raises) writes zero `extracted_fields` rows. The matcher then reads
+  > "no `po_id`" and the rules engine classifies it **`unresolved`**, which is the status for an
+  > invoice that was read and carries no purchase-order reference. The spec reserves **`failed`** for
+  > an invoice that could not be processed. Measured: `missing-reference` ends `unresolved` with 7
+  > fields (correct), while `quantity-overbill` and `undercharge` end `unresolved` with 0 fields
+  > (should be `failed`). Rendering the two images in this slice removes the symptom for these
+  > fixtures, but a genuine extraction failure would still be mislabelled — confirm the distinction
+  > holds once images exist, and record it in the ambiguities list if it does not.
 
   > A required deliverable. After this slice a reviewer with no AWS access runs the whole flow.
 
@@ -86,7 +96,7 @@ tests — those are the regression suite.
 
   > A required behaviour. One bad invoice must not cost the reviewer the rest of the run.
 
-  - [ ] Wrap each invoice in `pipeline.run_batch` with a `try`/`except` scoped to `ExtractionError`, `CacheMissError` and the SDK error types. Never use a bare `except Exception`; a genuine bug must still surface. A failed invoice gets `status = failed`, no amounts, and a readable reason. **[Agent: python-backend]**
+  - [x] *(Partly done in Slice 4 — `MoneyFormatError` isolation landed early when a defect surfaced. Extraction and cache error types still to add in this slice.)* Wrap each invoice in `pipeline.run_batch` with a `try`/`except` scoped to `ExtractionError`, `CacheMissError` and the SDK error types. Never use a bare `except Exception`; a genuine bug must still surface. A failed invoice gets `status = failed`, no amounts, and a readable reason. **[Agent: python-backend]**
   - [ ] Make the batch report the failed invoices separately from the seed-check result, and return a non-zero processing signal that does not merge with the seed-check exit code. **[Agent: python-backend]**
   - [ ] Write `tests/integration/test_failure_isolation.py`: a corrupt or absent cache entry for one invoice leaves the others processed and listed; the failed invoice carries no expected amount and no difference. **[Agent: testing-expert]**
   - [ ] Verify: corrupt one saved response in a scratch copy of the cache, run the batch from it, and report the real output. Confirm the other invoices still process and the failed one shows a reason. Restore the cache and delete the scratch copy. **[Agent: testing-expert]**
@@ -131,7 +141,7 @@ tests — those are the regression suite.
   > The brief requires a results table showing expected against observed behaviour.
 
   - [ ] Produce the results table for the five required checks from the brief: the clean invoice matching its records; the wrong unit price giving the expected difference; the duplicate excluded from payable totals; the missing reference staying unresolved with no invented match; and a correction rerunning reconciliation and surviving a restart. Give the expected behaviour and the observed behaviour for each. Name any check that failed and why. **[Agent: testing-expert]**
-  - [ ] Record the settled ambiguities with the gap, the chosen behaviour and the reason, and the run instructions using **`aws login`**, not `aws sso login`. Record the rounding rule: the platform holds all money as whole cents and never rounds during a calculation. **[Agent: python-backend]**
+  - [ ] Record the settled ambiguities with the gap, the chosen behaviour and the reason. Record the run instructions with **both** credential commands, because an external assessor will not have the in-house wrapper: `aws login` (in-house) and `aws configure sso` once followed by `aws sso login --profile <name>` (standard AWS CLI). Add the `export AWS_PROFILE=<name>` step for a non-`default` profile, and state that credentials are needed for live extraction only — `--from-cache` needs none. Record the rounding rule: the platform holds all money as whole cents and never rounds during a calculation. **[Agent: python-backend]**
   - [ ] Verify: run the full flow from a clean checkout path — `--reset-db --from-cache --seed-check` — and confirm the table matches the real behaviour. Report the real output. Delete any scratch files. **[Agent: testing-expert]**
 
 - [ ] **Slice 14: Feature Testing & Regression**

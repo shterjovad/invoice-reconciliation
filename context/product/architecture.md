@@ -100,9 +100,12 @@ the decision._
 
 ## 4. External Services and APIs
 
-- **Model Provider:** **AWS Bedrock**, region **us-east-1**, through the
-  **`AnthropicBedrockMantle(aws_region="us-east-1")`** client in the `anthropic` Python SDK. This is
-  **not** `AnthropicBedrock`, which is the legacy `InvokeModel` path.
+- **Model Provider:** **AWS Bedrock**, region **us-east-1**, through the classic
+  **`bedrock-runtime`** client in `boto3`, calling `invoke_model` with the
+  `anthropic_version: "bedrock-2023-05-31"` body. **Corrected 2026-10-06:** this entry previously
+  required `AnthropicBedrockMantle`. That targets `bedrock-mantle...api.aws`, a separate AWS service
+  with its own entitlement, and it returns `404` for every model on this account. Classic
+  `bedrock-runtime` works with the same credentials, region and model ID.
   _Alternatives: the Anthropic API needs a committed API key, which the secret policy of this
   project discourages. Local OCR such as Tesseract breaks across the two layouts, and the images
   carry no text layer._

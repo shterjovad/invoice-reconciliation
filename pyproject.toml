@@ -1,0 +1,26 @@
+[project]
+name = "invoice-reconciliation"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "shterjovad", email = "56770645+shterjovad@users.noreply.github.com" }
+]
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "jinja2",
+    "anthropic[bedrock]",
+    "jsonschema",
+    "botocore[crt]>=1.43.108",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pillow>=10.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

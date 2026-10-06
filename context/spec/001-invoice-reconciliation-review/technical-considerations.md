@@ -83,12 +83,12 @@ All money columns are `INTEGER` holding cents. No `REAL` column may hold money.
 
 | Table | Key columns | Purpose |
 | --- | --- | --- |
-| `purchase_orders` | `po_id` PK, `supplier_id`, `sku`, `quantity`, `unit_cents` | Supplied reference data |
-| `receipts` | `receipt_id` PK, `po_id` FK, `sku`, `quantity` | Supplied reference data |
+| `purchase_orders` | `po_id` TEXT PK, `supplier_id` TEXT, `sku` TEXT, `quantity` INTEGER, `unit_cents` INTEGER | Supplied reference data |
+| `receipts` | `receipt_id` **TEXT** PK, `po_id` TEXT FK, `sku` TEXT, `quantity` INTEGER | Supplied reference data. **`receipt_id` is TEXT, not an integer surrogate** — the fixtures carry string labels (`"RC-1"`, `"RC-2"`), and the brief requires "preserving source identifiers". An `INTEGER PRIMARY KEY` column rejects them with `datatype mismatch`. |
 | `invoices` | `invoice_id` PK, `file_id` UNIQUE, `image_path`, `layout`, `received_at`, `extraction_source` | One row per source document. `received_at` orders the duplicate rule. `extraction_source` is `live` or `cache`. |
 | `extracted_fields` | PK (`invoice_id`, `field_name`), `original_value`, `current_value` | The seven values. `original_value` is never overwritten. `current_value` changes on correction. Both are TEXT, because this table holds what the model returned before interpretation. |
 | `corrections` | `correction_id` PK, `invoice_id` FK, `field_name`, `value_before`, `value_after`, `changed_by`, `changed_at` | Append-only audit trail |
-| `reconciliation_results` | `invoice_id` PK, `status`, `expected_cents`, `billed_cents`, `difference_cents`, `count_as_payable`, `matched_po_id`, `matched_receipt_id`, `computed_at` | Overwritten on each recompute. All cent columns are nullable. |
+| `reconciliation_results` | `invoice_id` PK, `status` TEXT, `expected_cents` INTEGER, `billed_cents` INTEGER, `difference_cents` INTEGER, `count_as_payable` INTEGER, `matched_po_id` TEXT, `matched_receipt_id` **TEXT**, `computed_at` TEXT | Overwritten on each recompute. **All cent columns are nullable, and so are `count_as_payable` (set only for `duplicate`) and both matched-record columns (set only when a match succeeds).** `matched_receipt_id` is TEXT because it references `receipts.receipt_id`, which holds `"RC-1"`. |
 | `discrepancy_notes` | `invoice_id` PK, `drafted_text`, `current_text`, `is_reviewer_edited`, `edited_at` | One row per discrepant invoice |
 
 `status` carries a `CHECK` constraint over the five values: `reconciled`, `discrepant`, `duplicate`,
@@ -164,9 +164,25 @@ asks for strings, and the dataclass types them `str | float | int`, because meas
 model sometimes returns a number. The converter in 2.3 handles both. `quantity` is an `int`, because
 it is a count and carries no rounding risk.
 
-**Client class.** The Bedrock client is **`AnthropicBedrockMantle(aws_region="us-east-1")`** from the
-`anthropic` package. It is **not** `AnthropicBedrock`, which is the legacy `InvokeModel` path.
-`extraction/client.py` is the only module that names this class.
+**Client class.** The Bedrock client is **classic `bedrock-runtime`**, through `boto3`, calling
+`invoke_model` with the `anthropic_version: "bedrock-2023-05-31"` body. `extraction/client.py` is the
+only module that builds it.
+
+**Corrected 2026-10-06, after a blocked slice.** This specification previously required
+`AnthropicBedrockMantle(aws_region="us-east-1")`. That was tested and is wrong for this account:
+
+- `AnthropicBedrockMantle` targets `bedrock-mantle.us-east-1.api.aws`, a **different AWS service**
+  from classic Bedrock (`bedrock-runtime.us-east-1.amazonaws.com`), with a separate model registry
+  and a separate entitlement.
+- On this account it returns `404 not_found` for **every** model tried — the full inference-profile
+  ID, the bare name, Sonnet 4.5, Sonnet 5 and Opus 5. The SDK emitted a deprecation warning for one
+  of those names while the endpoint still refused it, which shows the models exist and the account
+  simply has no Mantle access.
+- Classic `bedrock-runtime`, with the **same credentials, same region and same model ID**, returns a
+  real completion and usage counts.
+
+An external assessor is also far more likely to hold classic Bedrock access than Mantle access, so
+this change serves the deliverable as well as the build.
 
 **Structured output.** A JSON Schema forces the shape. Two constraints carry weight:
 
@@ -346,8 +362,19 @@ reports the model that truly served it.
 
 ### System Dependencies
 
-- **AWS Bedrock, us-east-1**, through the `anthropic` SDK. The session comes from `aws login`. The
-  run instructions must say `aws login`, not `aws sso login`.
+- **AWS Bedrock, us-east-1**, through the `anthropic` SDK. Bedrock authenticates with SigV4 from the
+  standard AWS credential chain, so the code takes no credential arguments and does not care how the
+  session was created. Two commands produce a valid session:
+  - `aws login` — the in-house wrapper used on this machine.
+  - `aws configure sso` once, then `aws sso login --profile <name>` — the standard AWS CLI path.
+
+  The run instructions must document **both**, because an external assessor will not have the
+  in-house wrapper. If the session lands under a named profile rather than `default`, the run
+  instructions must also say to `export AWS_PROFILE=<name>` — otherwise the chain resolves `default`
+  and the failure reads like a code defect when it is a configuration one.
+
+  Credentials are needed for live extraction only. The `--from-cache` path runs the whole batch with
+  no AWS access at all, and that is the path the assessor is expected to use.
 - **The supplied fixtures** in `tasks/invoices/` are the source of truth. The database rebuilds from
   them.
 - **The host interpreter** is Python 3.11.6. Nothing the project needs is installed there yet.
@@ -420,7 +447,8 @@ apart from any output of the platform.
 - **The model returns money fields as JSON numbers in about one call of three.** The schema
   constrains them to strings, and the converter accepts both. Three numeric rows in the unit table
   hold this.
-- **The client class is `AnthropicBedrockMantle`**, not `AnthropicBedrock`.
+- **The client is classic `bedrock-runtime` through `boto3`.** `AnthropicBedrockMantle` was tested on
+  this account and 404s for every model; it is a separate AWS service with a separate entitlement.
 - **The `us.` inference-profile prefix is required** on the model ID.
 
 ### Still assumptions, open to challenge

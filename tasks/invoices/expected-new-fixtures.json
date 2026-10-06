@@ -1,0 +1,49 @@
+[
+  {
+    "file_id": "quantity-overbill",
+    "_comment": [
+      "Hand-calculated, not copied from any program output.",
+      "Matches PO-1 (S1, CAB-1, ordered_quantity=5, unit_cents=2000) and",
+      "its receipt RC-1 (received_quantity=5).",
+      "expected_cents = ordered_quantity * unit_cents = 5 * 2000 = 10000",
+      "billed_cents = total_cents on the invoice = 8 * 2000 = 16000",
+      "difference_cents = billed_cents - expected_cents = 16000 - 10000 = 6000",
+      "billed_quantity (8) != ordered_quantity (5) and != received_quantity (5),",
+      "so the quantity-mismatch rule applies: status is 'discrepant' regardless",
+      "of the sign or size of difference_cents (domain.md step 5).",
+      "Discrepant invoices are not duplicates and not unresolved, so nothing",
+      "here excludes it from a recoverable total on that basis."
+    ],
+    "status": "discrepant",
+    "expected_cents": 10000,
+    "billed_cents": 16000,
+    "difference_cents": 6000
+  },
+  {
+    "file_id": "undercharge",
+    "_comment": [
+      "Hand-calculated, not copied from any program output.",
+      "Matches PO-2 (S1, CAB-1, ordered_quantity=5, unit_cents=2000) and",
+      "its receipt RC-2 (received_quantity=5).",
+      "expected_cents = ordered_quantity * unit_cents = 5 * 2000 = 10000",
+      "billed_cents = total_cents on the invoice = 5 * 1800 = 9000",
+      "difference_cents = billed_cents - expected_cents = 9000 - 10000 = -1000",
+      "billed_quantity (5) equals both ordered_quantity (5) and received_quantity (5),",
+      "so the quantity-mismatch rule does NOT apply. difference_cents is non-zero,",
+      "so status is 'discrepant' (domain.md: 'a non-zero difference -- positive or",
+      "negative -- is discrepant'). This is the undercharge case: a negative",
+      "difference_cents, which the supplied rules do not separately name but do not",
+      "exempt from 'discrepant' either.",
+      "This result must be EXCLUDED from any recoverable-amount total: the task",
+      "brief directs that an undercharge (negative difference) is excluded from",
+      "recoverable amounts even though its status is discrepant, same as an",
+      "overcharge. This is the one place this fixture set encodes a decision",
+      "beyond a literal reading of domain.md -- recorded here, not silently",
+      "assumed."
+    ],
+    "status": "discrepant",
+    "expected_cents": 10000,
+    "billed_cents": 9000,
+    "difference_cents": -1000
+  }
+]
