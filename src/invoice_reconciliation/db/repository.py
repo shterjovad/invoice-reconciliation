@@ -155,7 +155,7 @@ def get_invoice_by_file_id(
     cursor = conn.execute(
         """
         SELECT invoice_id, file_id, image_path, layout, received_at,
-               extraction_source, extraction_failed
+               extraction_source, extraction_failed, extraction_failure_reason
         FROM invoices
         WHERE file_id = ?
         """,
@@ -168,12 +168,14 @@ def list_invoices(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Return all invoices."""
     cursor = conn.execute(
         "SELECT invoice_id, file_id, image_path, layout, received_at, "
-        "extraction_source, extraction_failed FROM invoices"
+        "extraction_source, extraction_failed, extraction_failure_reason FROM invoices"
     )
     return cursor.fetchall()
 
 
-def mark_extraction_failed(conn: sqlite3.Connection, *, invoice_id: int) -> None:
+def mark_extraction_failed(
+    conn: sqlite3.Connection, *, invoice_id: int, reason: str | None = None
+) -> None:
     """Flag an invoice's extraction as failed, after its row already exists.
 
     ``ingest_invoices_via_extraction`` inserts the ``invoices`` row before
@@ -181,10 +183,17 @@ def mark_extraction_failed(conn: sqlite3.Connection, *, invoice_id: int) -> None
     (so a bad invoice still gets a row other tables can reference). This is
     the one call that records failure once it is known, rather than
     requiring the caller to know it up front.
+
+    ``reason`` is the human-readable cause (e.g. the same text
+    ``ExtractionIngestOutcome.error`` carries), persisted so the reviewer
+    detail page can show *why* an invoice failed, not just that it did.
+    Optional and defaults to ``None`` so existing callers that do not pass
+    it keep working unchanged.
     """
     conn.execute(
-        "UPDATE invoices SET extraction_failed = 1 WHERE invoice_id = ?",
-        (invoice_id,),
+        "UPDATE invoices SET extraction_failed = 1, extraction_failure_reason = ? "
+        "WHERE invoice_id = ?",
+        (reason, invoice_id),
     )
 
 
@@ -193,7 +202,7 @@ def get_invoice(conn: sqlite3.Connection, *, invoice_id: int) -> sqlite3.Row | N
     cursor = conn.execute(
         """
         SELECT invoice_id, file_id, image_path, layout, received_at,
-               extraction_source, extraction_failed
+               extraction_source, extraction_failed, extraction_failure_reason
         FROM invoices
         WHERE invoice_id = ?
         """,
@@ -395,6 +404,7 @@ def list_invoices_with_results(
         f"""
         SELECT i.invoice_id, i.file_id, i.image_path, i.layout,
                i.received_at, i.extraction_source, i.extraction_failed,
+               i.extraction_failure_reason,
                r.status, r.expected_cents, r.billed_cents,
                r.difference_cents, r.count_as_payable, r.matched_po_id,
                r.matched_receipt_id, r.computed_at

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Invoice {{ invoice.file_id }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <p><a href="/invoices">&larr; back to queue</a></p>
+
+    <h1>{{ invoice.file_id }}</h1>
+    <p>
+        <span class="status status-{{ status }}">{{ status }}</span>
+    </p>
+
+    {% if invoice.extraction_failed %}
+    <section class="panel panel-failed">
+        <h2>Extraction failed</h2>
+        <p class="failure-reason">{{ invoice.failure_reason or "No reason recorded." }}</p>
+    </section>
+    {% endif %}
+
+    <div class="detail-layout">
+        <section class="panel invoice-image">
+            <h2>Invoice image</h2>
+            <img src="/invoices/{{ invoice.invoice_id }}/image" alt="Invoice {{ invoice.file_id }}">
+        </section>
+
+        <section class="panel fields">
+            <h2>Extracted fields</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Original</th>
+                        <th>Current</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for field in fields %}
+                    <tr class="{{ 'field-corrected' if field.is_corrected else '' }}">
+                        <td>{{ field.field_name }}</td>
+                        <td>{{ field.original_display }}</td>
+                        <td>{{ field.current_display }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+    <section class="panel match">
+        <h2>Matched purchase order and receipt</h2>
+        {% if match %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Purchase order</th>
+                    <th>Supplier</th>
+                    <th>SKU</th>
+                    <th>Ordered qty</th>
+                    <th>Agreed unit price</th>
+                    <th>Receipt</th>
+                    <th>Received qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ match.po_id }}</td>
+                    <td>{{ match.supplier_id }}</td>
+                    <td>{{ match.sku }}</td>
+                    <td>{{ match.quantity }}</td>
+                    <td>{{ match.unit_price_display }}</td>
+                    <td>{{ match.receipt_id or "–" }}</td>
+                    <td>{{ match.receipt_quantity if match.receipt_quantity is not none else "–" }}</td>
+                </tr>
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-match">No matched purchase order.</p>
+        {% endif %}
+    </section>
+
+    <section class="panel calculation">
+        <h2>Expected vs. billed</h2>
+        {% if calculation.has_amounts %}
+        <table class="calculation-table">
+            <tbody>
+                <tr>
+                    <td>Expected</td>
+                    <td>{{ calculation.expected_display }}</td>
+                    <td class="calculation-arithmetic">
+                        {{ match.quantity }} ordered &times; {{ match.unit_price_display }} agreed
+                    </td>
+                </tr>
+                <tr>
+                    <td>Billed</td>
+                    <td>{{ calculation.billed_display }}</td>
+                    <td class="calculation-arithmetic"></td>
+                </tr>
+                <tr class="{{ 'amount-negative' if calculation.difference_cents is not none and calculation.difference_cents < 0 else '' }}">
+                    <td>Difference</td>
+                    <td>{{ calculation.difference_display }}</td>
+                    <td class="calculation-arithmetic"></td>
+                </tr>
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-amount">No expected amount — this invoice has no matched purchase order.</p>
+        {% endif %}
+    </section>
+</body>
+</html>

@@ -46,3 +46,51 @@ th, td {
     font-weight: bold;
     text-decoration: none;
 }
+
+/* Detail page */
+
+.panel {
+    margin-bottom: 1.5rem;
+}
+
+.detail-layout {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.invoice-image img {
+    max-width: 100%;
+    width: 320px;
+    border: 1px solid #ddd;
+}
+
+.fields {
+    flex: 1;
+    min-width: 280px;
+}
+
+.field-corrected {
+    background: #fff8e1;
+}
+
+.panel-failed {
+    background: #f6d9d9;
+    padding: 0.75rem 1rem;
+    border-radius: 0.25rem;
+}
+
+.failure-reason {
+    font-family: monospace;
+}
+
+.no-amount, .no-match {
+    color: #555;
+    font-style: italic;
+}
+
+.calculation-arithmetic {
+    color: #555;
+    font-size: 0.9rem;
+}

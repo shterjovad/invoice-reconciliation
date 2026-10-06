@@ -403,12 +403,15 @@ def ingest_invoices_via_extraction(
                 file_id,
                 image_path,
             )
-            repository.mark_extraction_failed(conn, invoice_id=invoice_id)
+            failure_reason = f"image file not found: {image_path}"
+            repository.mark_extraction_failed(
+                conn, invoice_id=invoice_id, reason=failure_reason
+            )
             outcomes.append(
                 ExtractionIngestOutcome(
                     file_id=file_id,
                     succeeded=False,
-                    error=f"image file not found: {image_path}",
+                    error=failure_reason,
                 )
             )
             continue
@@ -455,12 +458,15 @@ def ingest_invoices_via_extraction(
                 type(exc).__name__,
                 exc,
             )
-            repository.mark_extraction_failed(conn, invoice_id=invoice_id)
+            failure_reason = f"{type(exc).__name__}: {exc}"
+            repository.mark_extraction_failed(
+                conn, invoice_id=invoice_id, reason=failure_reason
+            )
             outcomes.append(
                 ExtractionIngestOutcome(
                     file_id=file_id,
                     succeeded=False,
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=failure_reason,
                 )
             )
             continue

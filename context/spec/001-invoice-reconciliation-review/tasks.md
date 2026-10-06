@@ -107,13 +107,13 @@ tests — those are the regression suite.
   - [x] Add `GET /invoices` with an optional `?status=` filter, and `queue.html` listing every invoice with its status and main figures. **[Agent: python-backend]**
   - [x] Verify: start Uvicorn in the background and record its PID. Request the queue and the filtered queue, and report the real responses. Confirm every invoice appears with one status and that the filter narrows the list. Stop the server by the recorded PID, without piping the stop command into anything. Delete any captured output. **[Agent: python-backend]**
 
-- [ ] **Slice 10: Open one invoice and see the evidence behind its status**
+- [x] **Slice 10: Open one invoice and see the evidence behind its status**
 
   > The screen that makes the result trustworthy.
 
-  - [ ] Add `GET /invoices/{id}` and `GET /invoices/{id}/image`, with `detail.html` showing the invoice image beside the seven values, each with its original and current value, the matched purchase order and receipt, and the expected-against-billed calculation. **[Agent: python-backend]**
-  - [ ] Show an unresolved invoice with no expected amount and no difference, rather than a zero or an estimate. Show a failed invoice with its reason. **[Agent: python-backend]**
-  - [ ] Verify: start the server in the background and record its PID. Open the discrepant invoice and report the real page content: billed $120.00, expected $100.00, difference $20.00, and the matched `PO-2` and its receipt. Open the unresolved invoice and confirm no amounts appear. Stop the server by PID. Delete any screenshots or captured output. **[Agent: python-backend]**
+  - [x] Add `GET /invoices/{id}` and `GET /invoices/{id}/image`, with `detail.html` showing the invoice image beside the seven values, each with its original and current value, the matched purchase order and receipt, and the expected-against-billed calculation. **[Agent: python-backend]**
+  - [x] Show an unresolved invoice with no expected amount and no difference, rather than a zero or an estimate. Show a failed invoice with its reason. **[Agent: python-backend]**
+  - [x] Verify: start the server in the background and record its PID. Open the discrepant invoice and report the real page content: billed $120.00, expected $100.00, difference $20.00, and the matched `PO-2` and its receipt. Open the unresolved invoice and confirm no amounts appear. Stop the server by PID. Delete any screenshots or captured output. **[Agent: python-backend]**
 
 - [ ] **Slice 11: Correct a value and watch the result change**
 

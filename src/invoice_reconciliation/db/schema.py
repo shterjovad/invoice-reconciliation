@@ -53,7 +53,11 @@ DDL_STATEMENTS: tuple[str, ...] = (
         layout            TEXT    NOT NULL,
         received_at       TEXT    NOT NULL,
         extraction_source TEXT    NOT NULL,
-        extraction_failed INTEGER NOT NULL DEFAULT 0
+        extraction_failed INTEGER NOT NULL DEFAULT 0,
+        -- The reason text for a failed extraction (e.g. "CacheMissError:
+        -- no cache entry for file_id ..."), for the reviewer detail page.
+        -- NULL whenever extraction_failed = 0.
+        extraction_failure_reason TEXT
     )
     """,
     # The seven extracted values, as TEXT (what the model returned, before
