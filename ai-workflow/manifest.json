@@ -321,6 +321,7 @@
       "status": "used",
       "redactions": [
         "home-directory path replaced with <home>",
+        "the brief's local folder name replaced with <brief folder>",
         "AWS account ID replaced with <aws-account-id>",
         "originSessionId values replaced with <session-id>"
       ]

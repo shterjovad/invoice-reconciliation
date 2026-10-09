@@ -1,6 +1,6 @@
 ---
 name: invoice-reconciliation-exercise-brief
-description: "The authoritative assignment brief lives outside the repo at <home>/Desktop/Provectus Test Task and overrides the repo's domain.md on several requirements."
+description: "The authoritative assignment brief lives outside the repo, in the invoice reconciliation platform brief folder, and overrides the repo's domain.md on several requirements."
 metadata: 
   node_type: memory
   type: project
@@ -10,9 +10,9 @@ metadata:
 
 The real brief for this project is **not in the repository**. It is here:
 
-- `<home>/Desktop/Provectus Test Task/client-ai-project-research.html` — the full brief.
+- `<brief folder>/client-ai-project-research.html` — the full brief for the invoice reconciliation platform.
   Read "Alternative B · Invoice reconciliation". Strip the HTML tags to read it.
-- `<home>/Desktop/Provectus Test Task/client-ai-starter-pack/` — the original starter pack
+- `<brief folder>/client-ai-starter-pack/` — the original starter pack
   with all seven task folders.
 
 This is a Junior AI Engineer take-home assignment, task B. The limit is **8 hours in total**,

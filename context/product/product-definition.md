@@ -5,8 +5,7 @@
 
 > **Source note:** This document comes from two sources. The first is the supplied material in
 > `tasks/invoices/`: `domain.md`, `seed.json`, `expected-seed-results.json` and the invoice images.
-> The second is the assignment brief at
-> `/Users/dona/Desktop/Provectus Test Task/client-ai-project-research.html`, section
+> The second is the assignment brief for the invoice reconciliation platform, section
 > "Alternative B". The brief has authority where the two disagree. A label **[Assumption]** marks
 > each item that comes from neither source.
 

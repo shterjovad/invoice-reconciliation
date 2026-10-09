@@ -108,8 +108,9 @@ agent in every session:
 
 They live outside the repository, under the Claude Code project folder.
 Redacted snapshots are in `ai-workflow/claude-memory/`. The redactions
-are the home-directory path (`<home>`), the AWS account ID
-(`<aws-account-id>`) and the session IDs (`<session-id>`). Nothing else
+are the home-directory path (`<home>`), the brief's folder name
+(`<brief folder>`), the AWS account ID (`<aws-account-id>`) and the session
+IDs (`<session-id>`). Nothing else
 was changed.
 
 **Skills** (`.claude/skills/`): `fastapi-best-practices`,
