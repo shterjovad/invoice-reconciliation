@@ -148,6 +148,30 @@ DDL_STATEMENTS: tuple[str, ...] = (
         edit_superseded   INTEGER NOT NULL DEFAULT 0
     )
     """,
+    # Append-only version history of a discrepancy note, one row per
+    # version, in the same spirit as ``corrections`` for field edits. Rows
+    # are never updated or deleted: a redraft or a reviewer's edit is
+    # always a new row. ``discrepancy_notes`` stays the current-state row
+    # and is kept in step with the latest version by the repository
+    # functions that write both. model_id/attempts/rejection_reasons are
+    # filled only for 'model' and 'calculated' drafts; created_by is
+    # 'model', 'system' (the calculated fallback) or 'reviewer'.
+    """
+    CREATE TABLE IF NOT EXISTS discrepancy_note_versions (
+        version_id        INTEGER PRIMARY KEY,
+        invoice_id        INTEGER NOT NULL REFERENCES invoices (invoice_id),
+        version_no        INTEGER NOT NULL,
+        text              TEXT    NOT NULL,
+        source            TEXT    NOT NULL
+                               CHECK (source IN ('model', 'calculated', 'reviewer')),
+        model_id          TEXT,
+        attempts          INTEGER,
+        rejection_reasons TEXT,
+        created_by        TEXT    NOT NULL,
+        created_at        TEXT    NOT NULL,
+        UNIQUE (invoice_id, version_no)
+    )
+    """,
 )
 
 INDEX_STATEMENTS: tuple[str, ...] = (

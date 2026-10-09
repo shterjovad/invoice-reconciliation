@@ -695,17 +695,20 @@ def test_corrected_field_still_shows_its_own_citation_with_previous_value(
 
     body = client.get(f"/invoices/{invoice_id}").text
     titles = _tooltip_titles(body)
-    corrected_citation = next(t for t in titles if t.startswith("Corrected by"))
+    corrected_citation = next(t for t in titles if t.startswith("v0 original"))
 
-    assert "Corrected by reviewer on" in corrected_citation
-    assert "Previous value: 'CAB-1'" in corrected_citation
+    assert "v0 original (extracted): CAB-1" in corrected_citation
+    assert "v1 CAB-1 \u2192 CABLE-X, by reviewer at" in corrected_citation
+    assert corrected_citation.rstrip().endswith("(current)")
 
     # Exactly one row citation beyond the five base icons (Original
     # header, Current header, matched PO, matched receipt, and — since
     # wrong-price is discrepant — the discrepancy note's drafted-by
-    # citation) — the correction adds one icon, not one per cell.
+    # citation), plus one icon per note version (v1 from the batch, v2
+    # from the redraft the correction forces) — the correction adds one
+    # icon, not one per cell.
     icon_count = body.count('class="prov"')
-    assert icon_count == 6, f"expected exactly 6 provenance icons after one correction, found {icon_count}"
+    assert icon_count == 8, f"expected exactly 8 provenance icons after one correction, found {icon_count}"
 
 
 def _all_invoice_ids(client: TestClient) -> dict[str, int]:

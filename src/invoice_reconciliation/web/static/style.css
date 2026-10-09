@@ -190,3 +190,40 @@ th .prov {
 .prov:focus-within .prov-popup {
     display: block;
 }
+
+/* Discrepancy note version history: oldest first, current one marked. */
+.note-versions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.note-version {
+    border-left: 3px solid #ccc;
+    padding: 0.25rem 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.note-version-is-current {
+    border-left-color: #2a6f3b;
+}
+
+.note-version-time {
+    color: #555;
+    font-size: 0.85rem;
+    margin-left: 0.5rem;
+}
+
+.note-version-current {
+    background: #e3f1e6;
+    color: #1d4f2b;
+    font-size: 0.8rem;
+    padding: 0 0.4rem;
+    border-radius: 0.25rem;
+    margin-left: 0.5rem;
+}
+
+.note-version-text {
+    margin-top: 0.25rem;
+    white-space: pre-wrap;
+}

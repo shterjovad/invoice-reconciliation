@@ -198,8 +198,7 @@ def _field_rows(
     original: dict[str, str | None],
     current: dict[str, str | None],
     *,
-    original_citation: provenance.Citation,
-    corrections_by_field: dict[str, sqlite3.Row],
+    corrections_by_field: dict[str, list[sqlite3.Row]],
 ) -> list[dict[str, object]]:
     """Pair each of the seven field names with its original and current value.
 
@@ -217,20 +216,20 @@ def _field_rows(
     corrected it, when, and the previous value, since that is a fact
     about this specific row, not the column. An uncorrected row's
     ``row_citation`` is ``None`` and the template renders no icon for it.
-    ``corrections_by_field`` maps a field name to its most recent
-    ``corrections`` row, used to build that per-row citation.
+    ``corrections_by_field`` maps a field name to all of its ``corrections``
+    rows, oldest first; the per-row citation lists the whole chain
+    (v0 original, v1, v2, ...), not just the latest change.
     """
     rows = []
     for field_name in FIELD_NAMES:
         original_value = original.get(field_name)
         current_value = current.get(field_name)
         is_corrected = original_value != current_value
+        field_corrections = corrections_by_field.get(field_name, [])
         row_citation = None
-        if is_corrected:
-            row_citation = provenance.current_value_citation(
-                is_corrected=is_corrected,
-                original_citation=original_citation,
-                correction=corrections_by_field.get(field_name),
+        if field_corrections:
+            row_citation = provenance.correction_chain_citation(
+                original_value=original_value, corrections=field_corrections
             )
         rows.append(
             {
@@ -242,6 +241,45 @@ def _field_rows(
             }
         )
     return rows
+
+
+_NOTE_SOURCE_LABELS = {
+    "model": "model-drafted",
+    "calculated": "calculated",
+    "reviewer": "edited by reviewer",
+}
+
+
+def _note_version_views(versions: list[sqlite3.Row]) -> list[dict[str, object]]:
+    """Shape the note's version rows (oldest first) for the history list.
+
+    The last row is the current version. Each carries its provenance
+    citation, built by ``provenance.note_version_citation``.
+    """
+    views = []
+    for index, row in enumerate(versions):
+        reasons = (
+            json.loads(row["rejection_reasons"]) if row["rejection_reasons"] is not None else None
+        )
+        views.append(
+            {
+                "version_no": row["version_no"],
+                "label": _NOTE_SOURCE_LABELS.get(row["source"], row["source"]),
+                "created_at": row["created_at"],
+                "text": row["text"],
+                "is_current": index == len(versions) - 1,
+                "citation": provenance.note_version_citation(
+                    version_no=row["version_no"],
+                    source=row["source"],
+                    created_by=row["created_by"],
+                    created_at=row["created_at"],
+                    model_id=row["model_id"],
+                    attempts=row["attempts"],
+                    rejection_reasons=reasons,
+                ),
+            }
+        )
+    return views
 
 
 def _match_view(purchase_order, receipt, *, po_id_present: bool) -> dict[str, object] | None:
@@ -324,12 +362,13 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             )
             receipt = repository.get_receipt_for_po(conn, po_id=result_row["matched_po_id"])
 
-        # Most recent correction per field (list_corrections is oldest
-        # first; the last entry per field name is the current one), for
-        # the current-value citation on a corrected field.
-        corrections_by_field: dict[str, sqlite3.Row] = {}
+        # Every correction per field, oldest first (list_corrections order),
+        # for the full version chain in a corrected field's citation.
+        corrections_by_field: dict[str, list[sqlite3.Row]] = {}
         for correction_row in repository.list_corrections(conn, invoice_id=invoice_id):
-            corrections_by_field[correction_row["field_name"]] = correction_row
+            corrections_by_field.setdefault(correction_row["field_name"], []).append(
+                correction_row
+            )
 
         # Draft the note on first view if this invoice has never been seen
         # as discrepant through the web layer before (e.g. it was only ever
@@ -348,6 +387,7 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
                     conn, invoice_id, use_model=get_draft_notes_with_model(request)
                 )
         note_row = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+        note_versions = repository.list_note_versions(conn, invoice_id=invoice_id)
 
     status = result_row["status"] if result_row is not None else None
     expected_cents = result_row["expected_cents"] if result_row is not None else None
@@ -411,6 +451,7 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
                 attempts=note_row["attempts"],
                 rejection_reasons=stored_rejection_reasons,
             ),
+            "versions": _note_version_views(note_versions),
         }
 
     templates = request.app.state.templates
@@ -423,7 +464,6 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             "fields": _field_rows(
                 original_fields,
                 current_fields,
-                original_citation=original_citation,
                 corrections_by_field=corrections_by_field,
             ),
             "original_column_citation": original_citation,
@@ -662,9 +702,9 @@ def correct_field(
             conn, invoice_id, use_model=get_draft_notes_with_model(request), force=True
         )
 
-    return RedirectResponse(
-        url=f"/invoices/{invoice_id}", status_code=303
-    )
+    # The anchor returns the reviewer to the fields table rather than the
+    # top of the page; detail.html restores the exact scroll position too.
+    return RedirectResponse(url=f"/invoices/{invoice_id}#fields", status_code=303)
 
 
 @router.post("/invoices/{invoice_id}/note")
@@ -714,9 +754,11 @@ def save_note(
             invoice_id=invoice_id,
             current_text=new_text,
             edited_at=_now_iso(),
+            changed_by=_REVIEWER,
         )
 
-    return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=303)
+    # Return to the note, not the top of the page (see the correction route).
+    return RedirectResponse(url=f"/invoices/{invoice_id}#note", status_code=303)
 
 
 # ---------------------------------------------------------------------------

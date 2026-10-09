@@ -330,6 +330,7 @@ def ensure_discrepancy_note(
             drafted_at=None,
             attempts=0,
             rejection_reasons=None,
+            created_at=_now_iso(),
         )
         return NoteOutcome(
             invoice_id=invoice_id,
@@ -350,6 +351,7 @@ def ensure_discrepancy_note(
         rejection_reasons=(
             json.dumps(drafted.rejection_reasons) if drafted.rejection_reasons else None
         ),
+        created_at=_now_iso(),
     )
     return NoteOutcome(
         invoice_id=invoice_id,

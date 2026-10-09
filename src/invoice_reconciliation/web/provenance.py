@@ -27,12 +27,13 @@ import sqlite3
 __all__ = [
     "Citation",
     "original_value_citation",
-    "current_value_citation",
     "current_column_citation",
     "matched_po_citation",
     "matched_receipt_citation",
     "no_match_citation",
     "discrepancy_note_citation",
+    "note_version_citation",
+    "correction_chain_citation",
 ]
 
 Citation = dict[str, object]
@@ -91,28 +92,34 @@ def original_value_citation(
     }
 
 
-def current_value_citation(
+def _show(value: object) -> str:
+    return "–" if value is None else str(value)
+
+
+def correction_chain_citation(
     *,
-    is_corrected: bool,
-    original_citation: Citation,
-    correction: sqlite3.Row | None,
+    original_value: str | None,
+    corrections: list[sqlite3.Row],
 ) -> Citation:
-    """Citation for an extracted field's *current* value.
+    """Every change to a field, oldest first, one line each.
 
-    Uncorrected: identical to the original-value citation — the current
-    value *is* the original value, so it is cited the same way.
-
-    Corrected: the correction row is the citation. Shows who changed it,
-    when, and what the value was before — never the original extraction
-    provenance, since that no longer describes the current value.
+    ``corrections`` is the field's rows from the append-only ``corrections``
+    table, oldest first. Version 0 is the extracted original (from
+    ``extracted_fields.original_value``); each correction is the next
+    version, and the last one is marked ``(current)``. Reads like the
+    discrepancy note's version history (``v1 · ...``).
     """
-    if not is_corrected or correction is None:
-        return original_citation
-
-    lines = [
-        f"Corrected by {correction['changed_by']} on {correction['changed_at']}.",
-        f"Previous value: {correction['value_before']!r}.",
-    ]
+    lines = [f"v0 original (extracted): {_show(original_value)}"]
+    last = len(corrections)
+    for number, correction in enumerate(corrections, start=1):
+        line = (
+            f"v{number} {_show(correction['value_before'])} \u2192 "
+            f"{_show(correction['value_after'])}, by {correction['changed_by']} "
+            f"at {correction['changed_at']}"
+        )
+        if number == last:
+            line += " (current)"
+        lines.append(line)
     return {"lines": lines, "link": None}
 
 
@@ -124,7 +131,7 @@ def current_column_citation() -> Citation:
     correction is recorded in the ``corrections`` table with who made it
     and when. This is the one citation shown for the whole column; a row
     that has actually been corrected also carries its own citation (see
-    ``current_value_citation``), since the previous value and the time of
+    ``correction_chain_citation``), since the previous value and the time of
     that specific change are a fact about that row, not the column.
     """
     lines = [
@@ -217,6 +224,36 @@ def discrepancy_note_citation(
         lines.append("Rejected attempt(s): " + "; ".join(rejection_reasons))
 
     return {"lines": lines, "link": None}
+
+
+def note_version_citation(
+    *,
+    version_no: int,
+    source: str,
+    created_by: str,
+    created_at: str,
+    model_id: str | None,
+    attempts: int | None,
+    rejection_reasons: list[str] | None,
+) -> Citation:
+    """Citation for one row of the discrepancy note's version history.
+
+    A ``model`` or ``calculated`` version reuses ``discrepancy_note_citation``
+    (model id, attempts, rejection reasons). A ``reviewer`` version states
+    who wrote it and when.
+    """
+    if source == "reviewer":
+        return {
+            "lines": [f"Edited by {created_by} on {created_at}."],
+            "link": None,
+        }
+    return discrepancy_note_citation(
+        drafted_by=source,
+        model_id=model_id,
+        drafted_at=created_at,
+        attempts=attempts,
+        rejection_reasons=rejection_reasons,
+    )
 
 
 def no_match_citation(*, po_id_present: bool) -> Citation:

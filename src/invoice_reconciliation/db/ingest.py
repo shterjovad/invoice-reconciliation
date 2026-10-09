@@ -192,6 +192,7 @@ def _clear_invoice_data(conn: sqlite3.Connection) -> None:
     deleted invoice ids either.
     """
     conn.execute("DELETE FROM reconciliation_results")
+    conn.execute("DELETE FROM discrepancy_note_versions")
     conn.execute("DELETE FROM discrepancy_notes")
     conn.execute("DELETE FROM corrections")
     conn.execute("DELETE FROM extracted_fields")

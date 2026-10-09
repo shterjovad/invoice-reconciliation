@@ -19,6 +19,7 @@ from their ID.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
 # purchase_orders
@@ -546,8 +547,16 @@ def upsert_discrepancy_note(
     drafted_at: str | None = None,
     attempts: int | None = None,
     rejection_reasons: str | None = None,
+    created_at: str | None = None,
 ) -> None:
     """Write the drafted note for a discrepant invoice.
+
+    Every call also appends one row to ``discrepancy_note_versions`` (source
+    ``drafted_by``, created by ``model`` or ``system``), so a redraft is a
+    new version, never a replacement of an earlier one. The version's
+    timestamp is ``created_at``, else ``drafted_at``, else now. The caller
+    (``pipeline.ensure_discrepancy_note``) never reaches this function
+    for a reviewer-edited note.
 
     Called once per recalculation that resolves an invoice to
     ``discrepant`` (the same point the pipeline persists a
@@ -601,6 +610,17 @@ def upsert_discrepancy_note(
             rejection_reasons,
         ),
     )
+    insert_note_version(
+        conn,
+        invoice_id=invoice_id,
+        text=drafted_text,
+        source=drafted_by,
+        created_by="model" if drafted_by == "model" else "system",
+        created_at=created_at or drafted_at or _utc_now_iso(),
+        model_id=model_id,
+        attempts=attempts,
+        rejection_reasons=rejection_reasons,
+    )
 
 
 def mark_discrepancy_note_edit_superseded(
@@ -652,18 +672,26 @@ def update_discrepancy_note_text(
     invoice_id: int,
     current_text: str,
     edited_at: str,
-) -> None:
-    """Record a reviewer's edit to a note's text.
+    changed_by: str = "reviewer",
+) -> bool:
+    """Record a reviewer's edit to a note's text as a new version.
 
-    Updates only ``current_text``, ``is_reviewer_edited`` (set to ``1``),
-    and ``edited_at``. ``drafted_text`` is never touched here — exactly
-    the same "the original stays readable beside the current" shape
-    ``update_current_field_value`` keeps for ``extracted_fields``.
+    Appends a ``reviewer`` row to ``discrepancy_note_versions`` and keeps
+    the ``discrepancy_notes`` current-state row in step: it updates only
+    ``current_text``, ``is_reviewer_edited`` (set to ``1``), and
+    ``edited_at``. ``drafted_text`` is never touched here.
+
+    Returns ``False`` and writes nothing at all when ``current_text`` is
+    identical to the text already on file (no new version, and the note is
+    not marked reviewer-edited); ``True`` when a version was written.
 
     This function performs no reconciliation recompute, and the route
     that calls it must not call one either: a note edit is a convenience
     for the reviewer, not a correction to a figure the rules engine reads.
     """
+    existing = get_discrepancy_note(conn, invoice_id=invoice_id)
+    if existing is not None and existing["current_text"] == current_text:
+        return False
     conn.execute(
         """
         UPDATE discrepancy_notes
@@ -672,3 +700,76 @@ def update_discrepancy_note_text(
         """,
         (current_text, edited_at, invoice_id),
     )
+    insert_note_version(
+        conn,
+        invoice_id=invoice_id,
+        text=current_text,
+        source="reviewer",
+        created_by=changed_by,
+        created_at=edited_at,
+    )
+    return True
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def insert_note_version(
+    conn: sqlite3.Connection,
+    *,
+    invoice_id: int,
+    text: str,
+    source: str,
+    created_by: str,
+    created_at: str,
+    model_id: str | None = None,
+    attempts: int | None = None,
+    rejection_reasons: str | None = None,
+) -> int:
+    """Append one version of an invoice's discrepancy note; return its number.
+
+    Append-only, like ``insert_correction``: there is no update or delete
+    for this table. ``version_no`` counts 1, 2, 3 per invoice.
+    """
+    version_no = conn.execute(
+        "SELECT COALESCE(MAX(version_no), 0) + 1 FROM discrepancy_note_versions "
+        "WHERE invoice_id = ?",
+        (invoice_id,),
+    ).fetchone()[0]
+    conn.execute(
+        """
+        INSERT INTO discrepancy_note_versions (
+            invoice_id, version_no, text, source, model_id, attempts,
+            rejection_reasons, created_by, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            invoice_id,
+            version_no,
+            text,
+            source,
+            model_id,
+            attempts,
+            rejection_reasons,
+            created_by,
+            created_at,
+        ),
+    )
+    return version_no
+
+
+def list_note_versions(conn: sqlite3.Connection, *, invoice_id: int) -> list[sqlite3.Row]:
+    """Every version of an invoice's discrepancy note, oldest first."""
+    cursor = conn.execute(
+        """
+        SELECT version_id, invoice_id, version_no, text, source, model_id,
+               attempts, rejection_reasons, created_by, created_at
+        FROM discrepancy_note_versions
+        WHERE invoice_id = ?
+        ORDER BY version_no
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchall()

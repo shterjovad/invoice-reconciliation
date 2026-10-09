@@ -44,7 +44,7 @@
             <img src="/invoices/{{ invoice.invoice_id }}/image" alt="Invoice {{ invoice.file_id }}">
         </section>
 
-        <section class="panel fields">
+        <section class="panel fields" id="fields">
             <h2>Extracted fields</h2>
             <table>
                 <thead>
@@ -138,13 +138,18 @@
     </section>
 
     {% if note %}
-    <section class="panel discrepancy-note">
+    <section class="panel discrepancy-note" id="note">
         <h2>Discrepancy note (draft)</h2>
         <p class="note-hint">
             A drafted note for your own reference. Edit it and use it however you decide.
+            {#- Describes the CURRENT version, so it reads "edited by reviewer"
+                once a reviewer saves, not the source of the first draft. -#}
+            {% set current = note.versions | selectattr("is_current") | first %}
             <span class="note-provenance">
-                {% if note.drafted_by == "model" %}model-drafted{% else %}calculated{% endif %}
-                {{ provenance_icon(note.note_citation) }}
+                {% if current %}v{{ current.version_no }} &middot; {{ current.label }}
+                {{ provenance_icon(current.citation) }}
+                {% else %}{% if note.drafted_by == "model" %}model-drafted{% else %}calculated{% endif %}
+                {{ provenance_icon(note.note_citation) }}{% endif %}
             </span>
         </p>
         {% if note.edit_superseded %}
@@ -158,13 +163,44 @@
             <br>
             <button type="submit">Save note</button>
         </form>
-        {% if note.is_reviewer_edited %}
-        <details class="note-original">
-            <summary>Original draft</summary>
-            <p>{{ note.drafted_text }}</p>
-        </details>
-        {% endif %}
+        <section class="note-history">
+            <h3>Version history</h3>
+            <ol class="note-versions">
+                {% for version in note.versions %}
+                <li class="note-version{{ ' note-version-is-current' if version.is_current else '' }}">
+                    <div class="note-version-head">
+                        <strong>v{{ version.version_no }} &middot; {{ version.label }}</strong>
+                        <span class="note-version-time">{{ version.created_at }}</span>
+                        {% if version.is_current %}<span class="note-version-current">current</span>{% endif %}
+                        {{ provenance_icon(version.citation) }}
+                    </div>
+                    <div class="note-version-text">{{ version.text }}</div>
+                </li>
+                {% endfor %}
+            </ol>
+        </section>
     </section>
     {% endif %}
+    <script>
+        // Keep the reviewer where they were after saving a correction or a
+        // note. A form post reloads the page, which would otherwise jump to
+        // the URL anchor or the top. Without JavaScript the anchor alone
+        // still lands on the right section.
+        (function () {
+            var key = "scroll:" + location.pathname;
+            document.querySelectorAll("form").forEach(function (form) {
+                form.addEventListener("submit", function () {
+                    try { sessionStorage.setItem(key, String(window.scrollY)); } catch (e) {}
+                });
+            });
+            var saved = null;
+            try { saved = sessionStorage.getItem(key); sessionStorage.removeItem(key); } catch (e) {}
+            if (saved !== null) {
+                window.addEventListener("load", function () {
+                    window.scrollTo(0, parseInt(saved, 10));
+                });
+            }
+        })();
+    </script>
 </body>
 </html>
