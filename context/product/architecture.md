@@ -162,8 +162,10 @@ the decision._
 
 ## 6. Secrets and Configuration
 
-- **`ai-workflow/.env.example` holds only variable names:** `AWS_REGION` and `BEDROCK_MODEL_ID`.
-- **Remove `MODEL_API_KEY`** from that file. Bedrock authenticates with SigV4 from the credential
+- **`.env.example` (repository root) holds only variable names:** `AWS_REGION` and `BEDROCK_MODEL_ID`. Both are optional overrides of the in-code defaults. No API-key variable exists; AWS credentials resolve through the standard credential chain (SigV4).
+- **`MODEL_API_KEY` is gone.** The starter pack's `ai-workflow/.env.example` carried that name; it
+  was removed rather than shipped, per the pack's own "Remove this example if no variables were
+  used." Bedrock authenticates with SigV4 from the credential
   chain, so there is no key to commit. The name would misrepresent how the application connects.
 - `.gitignore` already ignores `.env` and `.env.*`, and keeps `.env.example`. No committed file may
   hold a credential, a token or an account number.

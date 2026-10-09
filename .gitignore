@@ -1,4 +1,4 @@
-# Secrets — never commit. Variable names only go in ai-workflow/.env.example
+# Secrets — never commit. Variable names only go in .env.example at the repo root
 .env
 .env.*
 !.env.example
