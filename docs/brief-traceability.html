@@ -71,9 +71,9 @@
 <body>
 <div class="wrap">
   <h1>Brief traceability: notes and corrections</h1>
-  <p class="sub">Each row quotes the brief verbatim, so you can find it with Ctrl+F in
+  <p class="sub">Each grey box is copied verbatim from the brief, with no added quote marks, so you can paste it straight into Ctrl+F in
     <code>client-ai-project-research.html</code> under <strong>Alternative B</strong>.
-    The section in grey is the heading the quote sits under.</p>
+    The small grey label is the heading it sits under. The brief uses tabs and Ctrl+F only searches the open one, so open Alternative B and the matching tab (Overview, Requirements, …) first.</p>
 
   <div class="legend">
     <span class="pill ok">✅ Implemented</span>
@@ -100,7 +100,7 @@
       <tr class="row-ok">
         <td class="num">1</td>
         <td class="req">Give the reviewer a draft note for each exception</td>
-        <td><blockquote>“Give a reviewer the evidence and a draft discrepancy note needed to resolve an exception.”<span class="sect">Overview</span></blockquote></td>
+        <td><blockquote>Give a reviewer the evidence and a draft discrepancy note needed to resolve an exception.<span class="sect">Overview</span></blockquote></td>
         <td>When reconciliation marks an invoice <strong>discrepant</strong></td>
         <td>The batch (<code>cli.py</code>) drafts the note while it reconciles. Invoices that are not discrepant get no note.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -109,7 +109,7 @@
       <tr class="row-ok">
         <td class="num">2</td>
         <td class="req">Use the <em>model</em> to draft it</td>
-        <td><blockquote>“Use the model to draft a short discrepancy note from verified findings and source references.”<span class="sect">Analytics &amp; Insights</span></blockquote></td>
+        <td><blockquote>Use the model to draft a short discrepancy note from verified findings and source references.<span class="sect">Analytics &amp; Insights</span></blockquote></td>
         <td>During the batch; also on a correction, and on first view if no note exists yet</td>
         <td>Bedrock (Sonnet 4.5) drafts it. If the model is unavailable, a calculated note is used, and the page always says which: <code>drafted_by</code> = model or calculated.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -118,7 +118,7 @@
       <tr class="row-ok">
         <td class="num">3</td>
         <td class="req">Only from <em>verified findings</em></td>
-        <td><blockquote>“…from verified findings…”<span class="sect">Analytics &amp; Insights — same line as #2</span></blockquote></td>
+        <td><blockquote>from verified findings<span class="sect">Analytics &amp; Insights — same line as #2</span></blockquote></td>
         <td>Every draft, before it is stored</td>
         <td>The model gets only the three computed figures. <code>verify_note</code> rejects the whole draft on any other figure, a wrong PO, the wrong direction or rounding. Up to 3 attempts, telling the model why, then the calculated note.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -127,7 +127,7 @@
       <tr class="row-ok">
         <td class="num">4</td>
         <td class="req">Cite the source records</td>
-        <td><blockquote>“…drafts a review note citing the source records.”<span class="sect">Overview — example behaviour</span></blockquote></td>
+        <td><blockquote>drafts a review note citing the source records.<span class="sect">Overview — example behaviour</span></blockquote></td>
         <td>Every draft</td>
         <td>Verification requires the invoice number and the matched PO ID in the text. The (i) icons cite the image, the model, the PO and receipt rows, and the matching rule.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -136,7 +136,7 @@
       <tr class="row-ok">
         <td class="num">5</td>
         <td class="req">Do not imply wrongdoing</td>
-        <td><blockquote>“…do not treat a discrepancy as proof of wrongdoing.”<span class="sect">Analytics &amp; Insights</span></blockquote></td>
+        <td><blockquote>do not treat a discrepancy as proof of wrongdoing.<span class="sect">Analytics &amp; Insights</span></blockquote></td>
         <td>Every draft</td>
         <td>Verification rejects cause or blame words (overcharge, error, mistake, fraud, wrongly, deliberately and others). A test checks the calculated note against the same list.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -145,7 +145,7 @@
       <tr class="row-ok">
         <td class="num">6</td>
         <td class="req">Notes are only drafts</td>
-        <td><blockquote>“All notes remain drafts; accounting integrations, payment execution, authentication, and cloud deployment are unnecessary.”<span class="sect">Technical Implementation</span></blockquote></td>
+        <td><blockquote>All notes remain drafts; accounting integrations, payment execution, authentication, and cloud deployment are unnecessary.<span class="sect">Technical Implementation</span></blockquote></td>
         <td>Always</td>
         <td>No send control anywhere; the heading reads “(draft)”. The reviewer edits the note and decides what to do with it.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -156,7 +156,7 @@
       <tr class="row-ok">
         <td class="num">7</td>
         <td class="req">Correct a value and rerun reconciliation</td>
-        <td><blockquote>“Let a reviewer correct an extracted value, rerun reconciliation, and save the review state.”<span class="sect">Dashboard/Visualization</span></blockquote></td>
+        <td><blockquote>Let a reviewer correct an extracted value, rerun reconciliation, and save the review state.<span class="sect">Dashboard/Visualization</span></blockquote></td>
         <td>When the reviewer saves a correction</td>
         <td>One transaction: an append-only <code>corrections</code> row, <code>current_value</code> updated, then <code>recalculate_one</code>. The route holds no reconciliation logic.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -165,7 +165,7 @@
       <tr class="row-ok">
         <td class="num">8</td>
         <td class="req">Keep the original extraction visible</td>
-        <td><blockquote>“Keep the original extraction available so the correction can be understood.”<span class="sect">Dashboard/Visualization</span></blockquote></td>
+        <td><blockquote>Keep the original extraction available so the correction can be understood.<span class="sect">Dashboard/Visualization</span></blockquote></td>
         <td>Always, after any correction</td>
         <td><code>original_value</code> is never overwritten. A corrected field’s (i) shows the whole chain: v0 extracted → v1 → v2 (current).</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -174,7 +174,7 @@
       <tr class="row-ok">
         <td class="num">9</td>
         <td class="req">The correction updates the saved result and survives a restart</td>
-        <td><blockquote>“Correcting an extracted field reruns reconciliation, updates the saved result, and remains visible after restarting the app.”<span class="sect">Minimum demonstration</span></blockquote></td>
+        <td><blockquote>Correcting an extracted field reruns reconciliation, updates the saved result, and remains visible after restarting the app.<span class="sect">Minimum demonstration</span></blockquote></td>
         <td>On the correction, and on any later restart</td>
         <td>Results, corrections and note versions are stored in SQLite; nothing is held only in memory. Checked across two separate server processes.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -192,7 +192,7 @@
       <tr class="row-ok">
         <td class="num">11</td>
         <td class="req">Save the review state</td>
-        <td><blockquote>“Save extracted values, findings, and review state.”<span class="sect">Data Processing</span></blockquote></td>
+        <td><blockquote>Save extracted values, findings, and review state.<span class="sect">Data Processing</span></blockquote></td>
         <td>Every save</td>
         <td>Extracted fields, results, corrections, notes and note versions are all stored in SQL.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -203,7 +203,7 @@
       <tr class="row-ok">
         <td class="num">12</td>
         <td class="req">Record reviewer decisions and note revisions</td>
-        <td><blockquote>“Add a simple record of reviewer decisions and draft-note revisions.”<span class="sect">Optional Enhancements</span></blockquote></td>
+        <td><blockquote>Add a simple record of reviewer decisions and draft-note revisions.<span class="sect">Optional Enhancements</span></blockquote></td>
         <td>Every note save and every redraft</td>
         <td>Append-only <code>discrepancy_note_versions</code>. The page lists every version, newest first, each with its source and time.</td>
         <td><span class="pill ok">✅ Implemented</span></td>
@@ -212,7 +212,7 @@
       <tr class="row-no">
         <td class="num">13</td>
         <td class="req">PDF invoices</td>
-        <td><blockquote>“Support PDF invoices in addition to images.”<span class="sect">Optional Enhancements</span></blockquote></td>
+        <td><blockquote>Support PDF invoices in addition to images.<span class="sect">Optional Enhancements</span></blockquote></td>
         <td>—</td>
         <td>Not built. The seeded invoices are PNG only.</td>
         <td><span class="pill no">❌ Not implemented</span></td>
@@ -221,7 +221,7 @@
       <tr class="row-no">
         <td class="num">14</td>
         <td class="req">Export the queue and calculations</td>
-        <td><blockquote>“Export the review queue and verified discrepancy calculations.”<span class="sect">Optional Enhancements</span></blockquote></td>
+        <td><blockquote>Export the review queue and verified discrepancy calculations.<span class="sect">Optional Enhancements</span></blockquote></td>
         <td>—</td>
         <td>Not built. No export route exists.</td>
         <td><span class="pill no">❌ Not implemented</span></td>
