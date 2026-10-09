@@ -11,6 +11,11 @@
             from { background-color: #d6f0dc; }
             to   { background-color: transparent; }
         }
+        .note-retired {
+            background: #eef1f4;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.25rem;
+        }
         .note-version-just-saved {
             animation: note-saved-flash 0.5s ease-out;
         }
@@ -153,7 +158,14 @@
 
     {% if note %}
     <section class="panel discrepancy-note" id="note">
-        <h2>Discrepancy note (draft)</h2>
+        <h2>Discrepancy note {% if note.is_active %}(draft){% else %}(retired){% endif %}</h2>
+        {% if not note.is_active %}
+        <p class="note-retired">
+            This invoice is no longer discrepant, so there is no current
+            discrepancy note. Earlier drafts stay in the history below. If a
+            later correction makes it discrepant again, a new version is drafted.
+        </p>
+        {% else %}
         <p class="note-hint">
             A drafted note for your own reference. Edit it and use it however you decide.
             {#- Describes the CURRENT version, so it reads "edited by reviewer"
@@ -177,6 +189,7 @@
             <br>
             <button type="submit">Save note</button>
         </form>
+        {% endif %}
         <section class="note-history">
             <h3>Version history</h3>
             <ol class="note-versions">
@@ -186,7 +199,7 @@
                     <div class="note-version-head">
                         <strong>v{{ version.version_no }} &middot; {{ version.label }}</strong>
                         <span class="note-version-time">{{ version.created_at }}</span>
-                        {% if version.is_current %}<span class="note-version-current">current</span>{% endif %}
+                        {% if version.is_current %}{% if note.is_active %}<span class="note-version-current">current</span>{% else %}<span class="note-version-time">last draft</span>{% endif %}{% endif %}
                         {{ provenance_icon(version.citation) }}
                     </div>
                     <div class="note-version-text">{{ version.text }}</div>

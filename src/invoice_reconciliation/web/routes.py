@@ -387,9 +387,8 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
         # invoice reads it back here rather than calling
         # _ensure_discrepancy_note again, so a page refresh never bills a
         # second model call. ``use_model`` is read from application state
-        # (opt-in, default off — see get_draft_notes_with_model) so the
-        # model is only ever attempted when the app was explicitly
-        # configured to do so.
+        # (on by default, since the brief makes a model-drafted note the
+        # normal path — see get_draft_notes_with_model; tests pass False).
         if result_row is not None and result_row["status"] == "discrepant":
             existing_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
             if existing_note is None:
@@ -462,6 +461,14 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
                 rejection_reasons=stored_rejection_reasons,
             ),
             "versions": _note_version_views(note_versions),
+            # A discrepancy note states figures "from verified findings"
+            # (task brief). Once a correction makes the invoice reconcile
+            # (or otherwise stops it being discrepant), the stored note
+            # describes figures that are no longer true, so it is retired:
+            # its history stays readable, but it is not offered as current
+            # and cannot be edited. A later correction that makes the
+            # invoice discrepant again redrafts it as a new version.
+            "is_active": status == "discrepant",
         }
 
     templates = request.app.state.templates
@@ -754,6 +761,16 @@ def save_note(
         existing_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
         if existing_note is None:
             raise HTTPException(status_code=404, detail="no note drafted for this invoice")
+
+        # A retired note (the invoice is no longer discrepant) is history
+        # only. Editing it would add a version describing figures that are
+        # no longer true.
+        result_row = repository.get_reconciliation_result(conn, invoice_id=invoice_id)
+        if result_row is None or result_row["status"] != "discrepant":
+            raise HTTPException(
+                status_code=409,
+                detail="this invoice is no longer discrepant; its note is retired",
+            )
 
         new_text = text.strip()
         if not new_text:

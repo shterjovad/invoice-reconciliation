@@ -349,3 +349,42 @@ def test_a_field_corrected_back_to_its_original_keeps_its_history(
     chain = _chain(client.get(f"/invoices/{invoice_id}").text)
     assert len(chain) == 3
     assert chain[2].startswith("v2 11000 → 12000")
+
+
+def test_a_note_is_retired_when_a_correction_makes_the_invoice_reconcile(
+    client: TestClient, db_path: Path
+) -> None:
+    """The brief says a note is drafted "from verified findings". After a
+    correction makes the invoice reconcile, the stored note states figures
+    that are no longer true, so it must not be offered as current."""
+    invoice_id = _invoice_id(db_path)
+    client.post(f"/invoices/{invoice_id}/fields/total_cents", data={"value": "10000"})
+    body = client.get(f"/invoices/{invoice_id}").text
+
+    assert "Discrepancy note (retired)" in body
+    assert "no longer discrepant" in body
+    assert '<textarea name="text"' not in body  # no editor for a retired note
+    assert "Version history" in body  # the drafts stay readable
+    assert 'class="note-version-current"' not in body
+
+
+def test_a_retired_note_cannot_be_edited(client: TestClient, db_path: Path) -> None:
+    invoice_id = _invoice_id(db_path)
+    client.post(f"/invoices/{invoice_id}/fields/total_cents", data={"value": "10000"})
+    response = client.post(
+        f"/invoices/{invoice_id}/note", data={"text": "Late edit."}, follow_redirects=False
+    )
+    assert response.status_code == 409
+
+
+def test_a_retired_note_is_redrafted_if_the_invoice_becomes_discrepant_again(
+    client: TestClient, db_path: Path
+) -> None:
+    invoice_id = _invoice_id(db_path)
+    client.post(f"/invoices/{invoice_id}/fields/total_cents", data={"value": "10000"})
+    client.post(f"/invoices/{invoice_id}/fields/total_cents", data={"value": "13000"})
+    body = client.get(f"/invoices/{invoice_id}").text
+
+    assert "Discrepancy note (draft)" in body
+    textarea = _re.search(r'<textarea name="text"[^>]*>(.*?)</textarea>', body, flags=_re.S)
+    assert textarea is not None and "$130.00" in _html.unescape(textarea.group(1))
