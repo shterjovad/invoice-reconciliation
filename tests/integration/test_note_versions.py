@@ -256,18 +256,18 @@ def test_history_renders_in_order_with_the_current_version_marked(
     history = body[body.index("Version history"):]
     first = history.index("v1 &middot; model-drafted")
     second = history.index("v2 &middot; edited by reviewer")
-    assert first < second
+    assert second < first  # newest first: v2 is listed above v1
     assert MODEL_NOTE in body and "Reviewer words." in body
 
     items = _re.findall(r'<li class="note-version[^"]*">.*?</li>', body, flags=_re.S)
     assert len(items) == 2
-    assert "note-version-current" not in items[0]
-    assert "note-version-current" in items[1]
+    assert "note-version-current" in items[0]
+    assert "note-version-current" not in items[1]
     assert body.count('class="note-version-current"') == 1
 
     # Provenance: model id on v1; who and when on the reviewer version.
-    assert MODEL_ID in _html.unescape(items[0])
-    assert "Edited by reviewer on" in _html.unescape(items[1])
+    assert MODEL_ID in _html.unescape(items[1])
+    assert "Edited by reviewer on" in _html.unescape(items[0])
 
     # Valid nesting: the history list is not inside a paragraph.
     parser = _Ancestors()

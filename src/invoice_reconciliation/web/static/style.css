@@ -38,13 +38,38 @@ th, td {
 
 .amount-negative { color: #b00020; }
 
-.filters a {
-    margin-right: 0.75rem;
+/* Queue summary strip: status counts (each one a filter link), the
+   recoverable total, and a link to the full summary page. */
+
+.summary-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin-bottom: 1rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 0.25rem;
 }
 
-.filters a.active {
-    font-weight: bold;
+.summary-strip a.strip-count {
+    color: inherit;
     text-decoration: none;
+    padding: 0.1rem 0.3rem;
+    border-bottom: 2px solid transparent;
+}
+
+.summary-strip a.strip-count:hover {
+    border-bottom-color: #999;
+}
+
+.summary-strip a.strip-count.active {
+    font-weight: bold;
+    border-bottom-color: #1a1a1a;
+}
+
+.summary-strip .strip-recoverable {
+    margin-left: auto;
 }
 
 /* Detail page */

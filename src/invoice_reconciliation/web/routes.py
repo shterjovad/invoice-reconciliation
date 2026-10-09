@@ -155,8 +155,15 @@ def list_invoices(request: Request, status: str | None = None) -> HTMLResponse:
     db_path = get_db_path(request)
     with connect(db_path) as conn:
         rows = repository.list_invoices_with_results(conn, status=status)
+        # The summary strip shows the whole batch whatever filter is active,
+        # so these two reads take no ``status``. They are the same two
+        # repository calls ``/summary`` makes, so the strip and that page
+        # cannot disagree.
+        status_counts_raw = repository.count_results_by_status(conn)
+        recoverable_total_cents = repository.get_recoverable_total_cents(conn)
 
     invoices = [_row_to_view(row) for row in rows]
+    status_counts = {name: status_counts_raw.get(name, 0) for name in STATUSES}
 
     templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -166,6 +173,9 @@ def list_invoices(request: Request, status: str | None = None) -> HTMLResponse:
             "invoices": invoices,
             "statuses": STATUSES,
             "selected_status": status,
+            "status_counts": status_counts,
+            "total_count": sum(status_counts.values()),
+            "recoverable_total_display": cents_to_display(recoverable_total_cents),
         },
     )
 

@@ -4,6 +4,20 @@
     <meta charset="utf-8">
     <title>{{ invoice.file_id }} — Invoice Reconciliation &amp; Review</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* Kept in this page, not style.css, because it only applies here.
+           The highlight lasts half a second, then fades back. */
+        @keyframes note-saved-flash {
+            from { background-color: #d6f0dc; }
+            to   { background-color: transparent; }
+        }
+        .note-version-just-saved {
+            animation: note-saved-flash 0.5s ease-out;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .note-version-just-saved { animation: none; outline: 2px solid #2f6b4f; }
+        }
+    </style>
 </head>
 <body>
     {% macro provenance_icon(citation) %}
@@ -166,7 +180,8 @@
         <section class="note-history">
             <h3>Version history</h3>
             <ol class="note-versions">
-                {% for version in note.versions %}
+                {#- Newest first: the current version leads, older ones follow. -#}
+                {% for version in note.versions | reverse %}
                 <li class="note-version{{ ' note-version-is-current' if version.is_current else '' }}">
                     <div class="note-version-head">
                         <strong>v{{ version.version_no }} &middot; {{ version.label }}</strong>
@@ -190,11 +205,27 @@
             var key = "scroll:" + location.pathname;
             document.querySelectorAll("form").forEach(function (form) {
                 form.addEventListener("submit", function () {
-                    try { sessionStorage.setItem(key, String(window.scrollY)); } catch (e) {}
+                    try {
+                        sessionStorage.setItem(key, String(window.scrollY));
+                        if (form.closest("#note")) {
+                            sessionStorage.setItem("flash:" + location.pathname, "1");
+                        }
+                    } catch (e) {}
                 });
             });
             var saved = null;
             try { saved = sessionStorage.getItem(key); sessionStorage.removeItem(key); } catch (e) {}
+            // Highlight the version the reviewer has just saved, briefly, so
+            // the save is visibly confirmed.
+            var flash = null;
+            try {
+                flash = sessionStorage.getItem("flash:" + location.pathname);
+                sessionStorage.removeItem("flash:" + location.pathname);
+            } catch (e) {}
+            if (flash) {
+                var current = document.querySelector(".note-version-is-current");
+                if (current) { current.classList.add("note-version-just-saved"); }
+            }
             if (saved !== null) {
                 window.addEventListener("load", function () {
                     window.scrollTo(0, parseInt(saved, 10));

@@ -8,13 +8,15 @@
 <body>
     <h1>Invoice Reconciliation &amp; Review Platform</h1>
 
-    <p class="filters">
-        <a href="/invoices" class="{{ 'active' if selected_status is none else '' }}">all</a>
+    <nav class="summary-strip" aria-label="Batch summary and status filter">
+        <a href="/invoices" class="strip-count{{ ' active' if selected_status is none else '' }}">all {{ total_count }}</a>
         {% for status in statuses %}
         <a href="/invoices?status={{ status }}"
-           class="{{ 'active' if selected_status == status else '' }}">{{ status }}</a>
+           class="strip-count{{ ' active' if selected_status == status else '' }}"><span class="status status-{{ status }}">{{ status }}</span> {{ status_counts[status] }}</a>
         {% endfor %}
-    </p>
+        <span class="strip-recoverable">Recoverable <strong>${{ recoverable_total_display }}</strong></span>
+        <a href="/summary" class="strip-summary-link">Full summary &rarr;</a>
+    </nav>
 
     <table>
         <thead>

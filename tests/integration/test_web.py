@@ -95,12 +95,14 @@ def test_queue_lists_all_six_invoices_with_correct_statuses(client: TestClient) 
     for file_id in ALL_FILE_IDS:
         assert file_id in body, f"{file_id} missing from the queue"
 
-    # One status badge per invoice, matching the real run described in the
-    # task brief.
-    assert body.count('status-reconciled">reconciled') == 1  # clean
-    assert body.count('status-discrepant">discrepant') == 3  # wrong-price, quantity-overbill, undercharge
-    assert body.count('status-duplicate">duplicate') == 1
-    assert body.count('status-unresolved">unresolved') == 1
+    # One status badge per invoice row, matching the real run described in
+    # the task brief. Scoped to the table body: the summary strip above it
+    # shows the same badges beside the counts.
+    rows = _table_body(body)
+    assert rows.count('status-reconciled">reconciled') == 1  # clean
+    assert rows.count('status-discrepant">discrepant') == 3  # wrong-price, quantity-overbill, undercharge
+    assert rows.count('status-duplicate">duplicate') == 1
+    assert rows.count('status-unresolved">unresolved') == 1
 
 
 def test_queue_renders_money_through_cents_to_display(client: TestClient) -> None:
@@ -857,3 +859,105 @@ def test_provenance_popup_uses_no_list_markup(client) -> None:
         r'<span class="prov-popup".*?</span>\s*</span>', body, flags=_re.S
     ):
         assert "<ul" not in popup and "<li" not in popup
+
+
+# ---------------------------------------------------------------------------
+# The queue's summary strip
+# ---------------------------------------------------------------------------
+
+_STATUS_NAMES = ("reconciled", "discrepant", "duplicate", "unresolved", "failed")
+_EXPECTED_COUNTS = {
+    "reconciled": 1,
+    "discrepant": 3,
+    "duplicate": 1,
+    "unresolved": 1,
+    "failed": 0,
+}
+
+
+def _strip(body: str) -> str:
+    """The ``<nav class="summary-strip">`` element of the queue page."""
+    match = _re.search(r'<nav class="summary-strip".*?</nav>', body, _re.DOTALL)
+    assert match is not None, "queue page has no summary strip"
+    return match.group(0)
+
+
+def _strip_counts(strip: str) -> dict[str, int]:
+    """Map status name to the count shown beside it in the strip."""
+    counts: dict[str, int] = {}
+    for name in _STATUS_NAMES:
+        found = _re.search(
+            rf'<span class="status status-{name}">{name}</span>\s*(\d+)', strip
+        )
+        assert found is not None, f"strip shows no count for {name}"
+        counts[name] = int(found.group(1))
+    return counts
+
+
+def _strip_text(strip: str) -> str:
+    return " ".join(_re.sub(r"<[^>]+>", " ", strip).split())
+
+
+def test_strip_shows_all_five_counts_and_the_recoverable_total(client: TestClient) -> None:
+    strip = _strip(client.get("/invoices").text)
+
+    assert _strip_counts(strip) == _EXPECTED_COUNTS
+    text = _strip_text(strip)
+    assert "Recoverable $80.00" in text
+    assert "70.00" not in text
+    assert "all 6" in text
+    assert "Full summary" in text
+
+
+def test_strip_counts_link_to_their_status_filter(client: TestClient) -> None:
+    strip = _strip(client.get("/invoices").text)
+
+    for name in _STATUS_NAMES:
+        assert f'href="/invoices?status={name}"' in strip
+    assert 'href="/invoices"' in strip
+    assert 'href="/summary"' in strip
+
+
+def test_strip_keeps_the_whole_batch_counts_when_a_filter_is_active(
+    client: TestClient,
+) -> None:
+    strip = _strip(client.get("/invoices?status=discrepant").text)
+
+    assert _strip_counts(strip) == _EXPECTED_COUNTS
+    assert "Recoverable $80.00" in _strip_text(strip)
+
+    active = _re.findall(r'<a [^>]*class="[^"]*\bactive\b[^"]*"[^>]*>(.*?)</a>', strip, _re.DOTALL)
+    assert len(active) == 1
+    assert "discrepant" in active[0]
+
+
+def test_strip_marks_all_active_when_no_filter_is_set(client: TestClient) -> None:
+    strip = _strip(client.get("/invoices").text)
+
+    active = _re.findall(r'<a [^>]*class="[^"]*\bactive\b[^"]*"[^>]*>(.*?)</a>', strip, _re.DOTALL)
+    assert len(active) == 1
+    assert active[0].strip().startswith("all")
+
+
+def test_queue_has_one_set_of_status_filter_links_only(client: TestClient) -> None:
+    body = client.get("/invoices").text
+
+    for name in _STATUS_NAMES:
+        assert body.count(f'href="/invoices?status={name}"') == 1, name
+    assert 'class="filters"' not in body
+
+
+def test_strip_numbers_equal_the_summary_page_numbers(client: TestClient) -> None:
+    strip = _strip(client.get("/invoices").text)
+    summary_body = client.get("/summary").text
+
+    for name, count in _strip_counts(strip).items():
+        assert _re.search(
+            rf'<span class="status status-{name}">{name}</span>\s*{count}\s*</td>',
+            summary_body,
+        ), f"/summary disagrees with the strip on {name} {count}"
+
+    strip_total = _re.search(r"Recoverable \$(\d+\.\d{2})", _strip_text(strip))
+    summary_total = _re.search(r'recoverable-amount">\$(\d+\.\d{2})<', summary_body)
+    assert strip_total is not None and summary_total is not None
+    assert strip_total.group(1) == summary_total.group(1) == "80.00"
