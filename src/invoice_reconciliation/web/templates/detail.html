@@ -12,11 +12,11 @@
         <span class="prov-icon" aria-hidden="true">ⓘ</span>
         <span class="sr-only">Where this value came from</span>
         <span class="prov-popup" role="tooltip">
-            <ul>
-                {% for line in citation.lines %}
-                <li>{{ line }}</li>
-                {% endfor %}
-            </ul>
+            {#- Spans, not <ul>/<li>: a list is not allowed inside <p>, so the
+                parser moved it out of the popup and left an empty box. -#}
+            {% for line in citation.lines %}
+            <span class="prov-line">{{ line }}</span>
+            {% endfor %}
             {% if citation.link %}
             <a href="{{ citation.link.href }}">{{ citation.link.text }}</a>
             {% endif %}

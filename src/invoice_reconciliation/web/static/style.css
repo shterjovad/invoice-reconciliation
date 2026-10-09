@@ -173,13 +173,12 @@ th .prov {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.prov-popup ul {
-    margin: 0;
-    padding-left: 1.1rem;
+.prov-line {
+    display: block;
 }
 
-.prov-popup li {
-    margin-bottom: 0.2rem;
+.prov-line + .prov-line {
+    margin-top: 0.2rem;
 }
 
 .prov-popup a {

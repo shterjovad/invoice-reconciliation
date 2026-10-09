@@ -577,13 +577,18 @@ def _tooltip_titles(body: str) -> list[str]:
     appears only after the browser's fixed delay of about a second, so it
     showed up late beside the instant CSS popup as a second copy.
     """
+    # Each popup is a run of prov-line spans directly after the opening tag.
     popups = _re.findall(
-        r'<span class="prov-popup"[^>]*>\s*<ul>(.*?)</ul>', body, flags=_re.S
+        r'<span class="prov-popup"[^>]*>((?:\s*<span class="prov-line">.*?</span>)*)',
+        body,
+        flags=_re.S,
     )
     return [
         "\n".join(
-            _html.unescape(li.strip())
-            for li in _re.findall(r"<li>(.*?)</li>", popup, flags=_re.S)
+            _html.unescape(line.strip())
+            for line in _re.findall(
+                r'<span class="prov-line">(.*?)</span>', popup, flags=_re.S
+            )
         )
         for popup in popups
     ]
@@ -837,3 +842,15 @@ def test_provenance_icon_has_no_native_title_tooltip(client) -> None:
     icons = _re.findall(r'<span class="prov"[^>]*>', body)
     assert icons, "expected at least one provenance icon"
     assert all("title=" not in tag for tag in icons)
+
+
+def test_provenance_popup_uses_no_list_markup(client) -> None:
+    """The note's icon sits inside a <p>. A <ul> is not allowed there, so the
+    HTML parser closed the paragraph and moved the list out of the popup:
+    the popup showed as an empty box and its lines showed on the page at all
+    times. The popup must use markup that is valid inside a paragraph."""
+    body = client.get("/invoices/2").text
+    for popup in _re.findall(
+        r'<span class="prov-popup".*?</span>\s*</span>', body, flags=_re.S
+    ):
+        assert "<ul" not in popup and "<li" not in popup
