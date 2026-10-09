@@ -706,11 +706,11 @@ def test_corrected_field_still_shows_its_own_citation_with_previous_value(
     # Exactly one row citation beyond the five base icons (Original
     # header, Current header, matched PO, matched receipt, and — since
     # wrong-price is discrepant — the discrepancy note's drafted-by
-    # citation), plus one icon per note version (v1 from the batch, v2
-    # from the redraft the correction forces) — the correction adds one
-    # icon, not one per cell.
+    # citation), plus one icon per note version. A SKU correction does not
+    # change anything the note states, so it is not redrafted: v1 only —
+    # the correction adds one icon, not one per cell.
     icon_count = body.count('class="prov"')
-    assert icon_count == 8, f"expected exactly 8 provenance icons after one correction, found {icon_count}"
+    assert icon_count == 7, f"expected exactly 7 provenance icons after one correction, found {icon_count}"
 
 
 def _all_invoice_ids(client: TestClient) -> dict[str, int]:

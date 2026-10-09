@@ -388,3 +388,62 @@ def test_a_retired_note_is_redrafted_if_the_invoice_becomes_discrepant_again(
     assert "Discrepancy note (draft)" in body
     textarea = _re.search(r'<textarea name="text"[^>]*>(.*?)</textarea>', body, flags=_re.S)
     assert textarea is not None and "$130.00" in _html.unescape(textarea.group(1))
+
+
+def _version_count(db_path: Path, invoice_id: int) -> int:
+    import sqlite3
+
+    con = sqlite3.connect(db_path)
+    try:
+        return con.execute(
+            "SELECT COUNT(*) FROM discrepancy_note_versions WHERE invoice_id = ?",
+            (invoice_id,),
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_a_correction_the_note_does_not_use_is_not_redrafted(
+    client: TestClient, db_path: Path
+) -> None:
+    """The note states the invoice number, the PO and the three amounts. A
+    SKU correction changes none of them, so the note stays accurate and
+    must not cost a model call or a new version."""
+    invoice_id = _invoice_id(db_path)
+    client.get(f"/invoices/{invoice_id}")
+    before = _version_count(db_path, invoice_id)
+    client.post(f"/invoices/{invoice_id}/fields/sku", data={"value": "CAB-1X"})
+    assert _version_count(db_path, invoice_id) == before
+
+
+def test_a_correction_that_changes_the_figures_is_redrafted(
+    client: TestClient, db_path: Path
+) -> None:
+    invoice_id = _invoice_id(db_path)
+    client.get(f"/invoices/{invoice_id}")
+    before = _version_count(db_path, invoice_id)
+    client.post(f"/invoices/{invoice_id}/fields/total_cents", data={"value": "11000"})
+    assert _version_count(db_path, invoice_id) == before + 1
+
+
+def test_saving_the_current_value_is_not_a_correction(
+    client: TestClient, db_path: Path
+) -> None:
+    """Re-saving the value already in place writes no audit row and no
+    note version, because nothing changed."""
+    import sqlite3
+
+    invoice_id = _invoice_id(db_path)
+    client.get(f"/invoices/{invoice_id}")
+    before = _version_count(db_path, invoice_id)
+    response = client.post(
+        f"/invoices/{invoice_id}/fields/supplier_id",
+        data={"value": "S1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    con = sqlite3.connect(db_path)
+    corrections = con.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
+    con.close()
+    assert corrections == 0
+    assert _version_count(db_path, invoice_id) == before

@@ -678,6 +678,16 @@ def correct_field(
         value_before = current_fields[field_name]
         value_after = _validate_field_value(field_name, value)
 
+        # Saving the value that is already current is not a correction:
+        # writing it would add an audit row for a change that never
+        # happened, and would trigger a needless redraft below.
+        if value_after == value_before:
+            return RedirectResponse(
+                url=f"/invoices/{invoice_id}#fields", status_code=303
+            )
+
+        note_inputs_before = _note_inputs(conn, invoice_id)
+
         changed_at = _now_iso()
         repository.insert_correction(
             conn,
@@ -715,13 +725,44 @@ def correct_field(
         # an explicit, synchronous user action, unlike the batch's own
         # drafting, so the reviewer is already waiting on this request
         # regardless.
-        _ensure_discrepancy_note(
-            conn, invoice_id, use_model=get_draft_notes_with_model(request), force=True
-        )
+        # Redraft only when the correction changed something the note
+        # states. A correction to a field the note does not use (the SKU,
+        # say) leaves the old note accurate, so it is kept: no new version,
+        # and no model call for the reviewer to wait on.
+        if _note_inputs(conn, invoice_id) != note_inputs_before:
+            _ensure_discrepancy_note(
+                conn,
+                invoice_id,
+                use_model=get_draft_notes_with_model(request),
+                force=True,
+            )
 
     # The anchor returns the reviewer to the fields table rather than the
     # top of the page; detail.html restores the exact scroll position too.
     return RedirectResponse(url=f"/invoices/{invoice_id}#fields", status_code=303)
+
+
+def _note_inputs(conn, invoice_id: int) -> tuple:
+    """Everything a discrepancy note states, for one invoice.
+
+    These are the inputs ``prompts.build_note_prompt`` and
+    ``notes.draft_note`` draw on: the status, the invoice number, the
+    matched purchase order, and the expected, billed and difference
+    amounts. If a correction leaves all of them unchanged, the stored note
+    still describes the invoice correctly and must not be redrafted.
+    """
+    result = repository.get_reconciliation_result(conn, invoice_id=invoice_id)
+    fields = repository.get_current_fields(conn, invoice_id=invoice_id)
+    if result is None:
+        return (None, fields.get("invoice_number"))
+    return (
+        result["status"],
+        fields.get("invoice_number"),
+        result["matched_po_id"],
+        result["expected_cents"],
+        result["billed_cents"],
+        result["difference_cents"],
+    )
 
 
 @router.post("/invoices/{invoice_id}/note")
