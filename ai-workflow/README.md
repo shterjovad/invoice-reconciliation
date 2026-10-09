@@ -8,9 +8,19 @@ rather than the template being deleted.
 
 ## Tools and models
 
-**Development tool.** Claude Code (CLI), model Claude Opus 5. Used for all
-coding, planning, and testing work on this exercise. No IDE plugin or browser
-extension was used alongside it.
+**Development tool.** Claude Code CLI, version 2.1.295 (recorded
+2026-10-09). Used for all coding, planning and testing work on this
+exercise. One extension was added to it: Playwright MCP, for browser
+automation (see "MCP servers" below). No Claude Code plugin, IDE plugin or
+browser extension was used.
+
+| Sessions | Model |
+|---|---|
+| 2026-10-06, the build | Claude Opus 5, as recorded when this file was first written |
+| 2026-10-09, the summary-page and failure-handling work and this update | Claude Opus 5.5 (`claude-opus-5-5`) |
+
+The repository does not store the model of each session, so the first row
+rests on that first record.
 
 **Application model** (the model the built application calls, separate from
 the development tool above). Configured in
@@ -27,6 +37,24 @@ The `us.` inference-profile prefix on the model ID is required. A bare model
 ID fails on AWS Bedrock with `ValidationException: Invocation with on-demand
 throughput isn't supported`. This was confirmed by running the call both
 ways, not assumed.
+
+**Three model calls.** The application calls the same model three times
+over, for three jobs. Each call uses one forced tool call and temperature
+`0.0`. All prompts and response schemas are in
+`src/invoice_reconciliation/prompts.py`.
+
+| Call | Code | Max tokens | Checks and fallback |
+|---|---|---|---|
+| Extraction of the seven invoice fields | `extraction/client.py` | `1024` | Parser checks shape, schema and domain. Any model or API failure becomes `ModelCallError` and fails only that invoice. |
+| Discrepancy note | `reconciliation/notes.py` | `512` | `verify_note`, up to 3 attempts, then a calculated note |
+| Process improvements on `/summary` | `reconciliation/improvement.py` | `300` per issue | One call for all ranked issues; `verify_improvement` checks each text; up to 3 calls, then a prepared sentence |
+
+Only extraction reads `BEDROCK_MODEL_ID` and `AWS_REGION`. The note and
+improvement calls use the in-code model ID.
+
+**Library versions** (from `uv.lock`): `anthropic` 1.11.0, `boto3`
+1.43.108, `botocore` 1.43.108, `fastapi` 0.142.2, `uvicorn` 0.54.0,
+`jinja2` 3.1.6. Python 3.11.
 
 **Client class, corrected.** The build first targeted
 `AnthropicBedrockMantle` (the `anthropic` SDK's Bedrock-Mantle surface, a
@@ -58,8 +86,31 @@ build and genuinely invoked during it:
 | `testing-expert.md` | Feature-level acceptance tests mapped to `functional-spec.md` criteria, run once at the end of the feature rather than per slice | `pytest-best-practices` |
 
 All four files are committed at their normal repository paths; nothing was
-moved for this submission. Their content is reproduced in full in
-`manifest.json`'s `configuration_records`.
+moved for this submission. Each one has a record in `manifest.json`'s
+`configuration_records`.
+
+**AWOS slash commands** (`.claude/commands/awos/`, which load
+`.awos/commands/` and fill `.awos/templates/`). These drove the
+spec-driven workflow: `/awos:product`, `/awos:roadmap`,
+`/awos:architecture`, `/awos:spec`, `/awos:tech` and `/awos:tasks` wrote
+`context/product/` and `context/spec/`; `/awos:hire` set up the subagents;
+`/awos:implement` and `/awos:verify` ran the slices. They were installed in
+commit `894bfe1` and used as installed.
+
+**Claude Code project memory.** Three memory files steered the development
+agent in every session:
+
+| File | What it tells the agent |
+|---|---|
+| `writing-style-asd-ste100-orwell.md` | All prose follows ASD-STE100 and Orwell's six rules; code and quotes stay exact. |
+| `invoice-reconciliation-exercise-brief.md` | Where the real brief is, and what it requires beyond `domain.md`. |
+| `bedrock-measured-behaviour.md` | Use classic `bedrock-runtime`, not Mantle; money can come back as a number. |
+
+They live outside the repository, under the Claude Code project folder.
+Redacted snapshots are in `ai-workflow/claude-memory/`. The redactions
+are the home-directory path (`<home>`), the AWS account ID
+(`<aws-account-id>`) and the session IDs (`<session-id>`). Nothing else
+was changed.
 
 **Skills** (`.claude/skills/`): `fastapi-best-practices`,
 `modern-python-development`, `pytest-best-practices`. These are
@@ -71,15 +122,26 @@ declares which of them it applies.
 **Hooks.** Not used. Neither `.claude/settings.json` nor
 `.claude/settings.local.json` contains a `hooks` key.
 
-**MCP servers** (`.mcp.json`, committed at the repository root):
+**Scripts.** One: `.awos/scripts/create-spec-directory.sh`. The
+`/awos:spec` command runs it to create the numbered spec folder, here
+`context/spec/001-invoice-reconciliation-review/`.
+
+**MCP servers.** Two at project scope (`.mcp.json`, committed at the
+repository root), one at user scope:
 
 - `awos-recruitment` — a capability-discovery lookup used while setting up
   the project's agents, not part of the invoice-reconciliation build itself.
 - `aws-knowledge-mcp-server` — AWS documentation lookup, used occasionally
   to check Bedrock API behavior.
 
-Neither server holds exercise-specific configuration beyond its connection
-URL, and no MCP server was written for this exercise.
+- `playwright` — browser automation: open, click and screenshot pages of
+  the local reviewer web app. Configured at **user scope** in
+  `~/.claude.json`, not in `.mcp.json`, as `npx @playwright/mcp@latest`.
+  The version is not pinned; this machine resolves 0.0.83. A copy of the
+  entry is in `ai-workflow/mcp-user-scope.json`. It holds no secret.
+
+No server holds exercise-specific configuration beyond its connection
+settings, and no MCP server was written for this exercise.
 
 **`.claude/settings.json`** (committed, shared, nothing sensitive):
 
@@ -105,14 +167,16 @@ and are not reusable by a reviewer on a different machine — so the file is
 described here rather than copied. It contains no credential, token, or
 account identifier.
 
-**Environment variables.** See `.env.example` at the repository root. The
-application reads two variable names, `AWS_REGION` and `BEDROCK_MODEL_ID`,
-both optional overrides of the in-code defaults listed in the table above.
+**Environment variables.** See `.env.example` at the repository root. It
+lists three names, with no values. `AWS_REGION` and `BEDROCK_MODEL_ID` are
+optional overrides of the in-code defaults listed in the table above.
+`AWS_PROFILE` is read by the AWS credential chain, not by the application,
+when the Bedrock session is under a named profile.
 No variable holds a secret; AWS credentials are never read from environment
 variables in this codebase (see "Credentials" above).
 
-**Earlier versions.** The full build history is in Git, 14 commits on
-`main`, from project setup through the final acceptance-test slice:
+**Earlier versions.** The full build history is in Git, on `main`, from
+project setup onward:
 
 ```
 uv run git log --oneline
@@ -218,11 +282,14 @@ spec to one of them — would have caught this earlier.
 
 **Accurate status markers**, as the template requests:
 
-- `used` — development tool, application model config, Bedrock client,
-  all four subagents, `.claude/settings.json`, root `.env.example`.
-- `default` — the three general-purpose skills, the two MCP servers
-  (connected with their default configuration, nothing exercise-specific
-  changed).
-- `not-used` — IDE plugins/extensions, hooks, exercise-specific skills.
+- `used` — development tool, application model config, the three model
+  calls, the application prompts, all four subagents, the project memory
+  (redacted snapshot), `.claude/settings.json`, root `.env.example`.
+- `used` — Playwright MCP (user scope, browser automation).
+- `default` — the three general-purpose skills, the AWOS commands and
+  their script, the two project MCP servers (used as installed, nothing
+  exercise-specific changed).
+- `not-used` — Claude Code plugins, IDE plugins, browser extensions,
+  hooks, exercise-specific skills.
 - `not-exportable` — `.claude/settings.local.json` (machine-specific paths,
   explained above, no credential present).

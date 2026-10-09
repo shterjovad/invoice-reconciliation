@@ -1,0 +1,3 @@
+- [Writing style: ASD-STE100 and Orwell](writing-style-asd-ste100-orwell.md) — all prose follows both rule sets; code and quotes stay exact.
+- [Exercise brief location](invoice-reconciliation-exercise-brief.md) — the real brief sits outside the repo and overrides domain.md.
+- [Bedrock measured behaviour](bedrock-measured-behaviour.md) — use classic bedrock-runtime (Mantle 404s here); money returns as a number 1 call in 3.

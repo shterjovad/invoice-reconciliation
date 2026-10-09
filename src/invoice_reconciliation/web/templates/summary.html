@@ -58,6 +58,7 @@
                     <th>Invoice</th>
                     <th>Invoice number</th>
                     <th>Purchase order</th>
+                    <th>Source</th>
                     <th>Difference</th>
                 </tr>
             </thead>
@@ -67,6 +68,7 @@
                     <td><a href="/invoices/{{ diff.invoice_id }}">{{ diff.file_id }}</a></td>
                     <td>{{ diff.invoice_number }}</td>
                     <td>{{ diff.po_id }}</td>
+                    <td class="difference-source">{{ diff.source_label }}</td>
                     <td class="{{ 'amount-negative' if diff.difference_cents is not none and diff.difference_cents < 0 else '' }}">
                         {{ diff.difference_display }}
                     </td>
@@ -79,9 +81,69 @@
         {% endif %}
     </section>
 
+    {% if by_source %}
+    <section class="panel by-source">
+        <h2>Differences by source</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Invoices</th>
+                    <th>Overcharges</th>
+                    <th>Undercharges</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for group in by_source %}
+                <tr>
+                    <td>{{ group.label }}</td>
+                    <td>{{ group.count }}</td>
+                    <td>${{ group.over_display }}</td>
+                    <td class="{{ 'amount-negative' if group.has_under else '' }}">${{ group.under_display }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="recoverable-hint">
+            Each invoice counts under one source with its whole difference. When both the unit
+            price and the quantity differ, the amount is not split between them.
+        </p>
+    </section>
+    {% endif %}
+
     <section class="panel improvement">
-        <h2>Suggested improvement</h2>
-        <p>{{ improvement }}</p>
+        <h2>Suggested improvements</h2>
+        {% if improvements.issues %}
+        <p class="improvement-basis">
+            The top issue types in the saved results, by number of invoices.
+            {% if not improvements.any_recurring %}No issue recurs yet: each one below occurs once.{% endif %}
+        </p>
+        {% for item in improvements.issues %}
+        <div class="improvement-item">
+            <p class="improvement-kind">
+                <strong>{{ item.label }}</strong> &middot;
+                {% if item.recurring %}Recurring, {{ item.count }} invoices{% else %}Single case, 1 invoice{% endif %}
+            </p>
+            <p class="improvement-text">{{ item.text }}
+                {#- Same ⓘ tooltip as the detail page's citations. -#}
+                <span class="prov" tabindex="0">
+                    <span class="prov-icon" aria-hidden="true">ⓘ</span>
+                    <span class="sr-only">How this text was written</span>
+                    <span class="prov-popup" role="tooltip">
+                        {% if item.drafted_by == "model" %}
+                        <span class="prov-line">Drafted by the model ({{ item.model_id }}) from the counts.</span>
+                        <span class="prov-line">One model call drafts every improvement on this page, reused until the issues change.</span>
+                        {% else %}
+                        <span class="prov-line">Prepared sentence from the counts: the model draft was not available.</span>
+                        {% endif %}
+                    </span>
+                </span>
+            </p>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="improvement-text">{{ improvements.empty_text }}</p>
+        {% endif %}
     </section>
 </body>
 </html>

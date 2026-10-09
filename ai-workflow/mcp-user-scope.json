@@ -1,0 +1,13 @@
+{
+  "_comment": "User-scope MCP server from ~/.claude.json (mcpServers.playwright), copied unchanged. Not in the project .mcp.json. No credentials or env values.",
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "env": {}
+    }
+  }
+}

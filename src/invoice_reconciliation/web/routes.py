@@ -32,6 +32,7 @@ from invoice_reconciliation.db.ingest import DEFAULT_SEED_PATH
 from invoice_reconciliation.extraction.cache import CacheMissError, ResponseCache
 from invoice_reconciliation.money import MoneyFormatError, cents_to_display
 from invoice_reconciliation.pipeline import recalculate_one
+from invoice_reconciliation.reconciliation import improvement
 from invoice_reconciliation.web import provenance
 
 __all__ = ["router"]
@@ -838,21 +839,59 @@ def save_note(
 # GET /summary
 # ---------------------------------------------------------------------------
 
-# One suggested improvement, named with the invoices that support it. This
-# is static text, not computed from the database, because "one
-# improvement" is a product recommendation (a sentence a human wrote about
-# a recurring pattern in the seed set), not a figure the rules engine
-# derives. It names the two discrepant invoices whose root difference is a
-# unit-price mismatch rather than a quantity mismatch, since those are the
-# cases a supplier-side price-list check would catch before the invoice
-# ever reaches a reviewer. Kept as a module-level constant (not parameters
-# threaded through the route) since nothing in this slice asks for a
-# second improvement to choose between.
-_SUGGESTED_IMPROVEMENT = (
-    "Confirm agreed unit prices against the supplier's price list before "
-    "invoicing — wrong-price and undercharge both bill a different unit "
-    "price than the matched purchase order agreed."
-)
+def _suggested_improvements(
+    request: Request, file_ids_by_issue: dict[str, list[str]], all_file_ids: tuple[str, ...]
+) -> dict:
+    """The improvements for the summary page, built from issue counts.
+
+    Code ranks the issue types and keeps the top two
+    (``improvement.rank_issues``); the model phrases all of them in one
+    call (``improvement.draft_improvements``). The drafts are kept on
+    ``app.state`` per set of issues and their invoices, so a page load
+    calls the model only when the facts change, for example after a
+    correction.
+    """
+    issues = improvement.rank_issues(file_ids_by_issue)
+    if not issues:
+        return {"issues": [], "empty_text": improvement.NO_ISSUES, "any_recurring": False}
+
+    cache = getattr(request.app.state, "improvement_drafts", None)
+    if cache is None:
+        cache = request.app.state.improvement_drafts = {}
+    use_model = get_draft_notes_with_model(request)
+    key = (tuple(issues), use_model)
+    if key not in cache:
+        cache[key] = improvement.draft_improvements(
+            issues, other_file_ids=all_file_ids, use_model=use_model
+        )
+    items = [
+        {
+            "label": improvement.ISSUE_LABELS[issue.kind],
+            "count": issue.count,
+            "recurring": issue.recurring,
+            "text": drafted.text,
+            "drafted_by": drafted.drafted_by,
+            "model_id": drafted.model_id,
+        }
+        for issue, drafted in zip(issues, cache[key])
+    ]
+    return {
+        "issues": items,
+        "empty_text": None,
+        "any_recurring": any(issue.recurring for issue in issues),
+    }
+
+
+# Display label for each ``DifferenceSource.kind``, in the order the
+# "By source" table lists them. ``unknown`` is for a discrepant invoice
+# whose source figures are missing; it is shown, never guessed.
+_SOURCE_LABELS = {
+    "price": "Unit price",
+    "quantity": "Quantity",
+    "price_and_quantity": "Unit price and quantity",
+    "total_only": "Total only",
+    "unknown": "Not known",
+}
 
 
 @router.get("/summary", response_class=HTMLResponse)
@@ -886,6 +925,15 @@ def summary(request: Request) -> HTMLResponse:
         status_counts_raw = repository.count_results_by_status(conn)
         recoverable_total_cents = repository.get_recoverable_total_cents(conn)
         discrepant_rows = repository.list_discrepant_results(conn)
+        all_rows = repository.list_invoices_with_results(conn)
+        source_kinds = {}
+        for row in discrepant_rows:
+            source = pipeline.source_of_difference(
+                conn,
+                current_fields=repository.get_current_fields(conn, invoice_id=row["invoice_id"]),
+                matched_po_id=row["matched_po_id"],
+            )
+            source_kinds[row["invoice_id"]] = source.kind if source is not None else "unknown"
 
     status_counts = {status: status_counts_raw.get(status, 0) for status in STATUSES}
 
@@ -895,11 +943,45 @@ def summary(request: Request) -> HTMLResponse:
             "file_id": row["file_id"],
             "invoice_number": row["invoice_number"] or "–",
             "po_id": row["matched_po_id"] or "–",
+            "source_label": _SOURCE_LABELS[source_kinds[row["invoice_id"]]],
             "difference_display": _display_amount(row["difference_cents"]),
             "difference_cents": row["difference_cents"],
         }
         for row in discrepant_rows
     ]
+
+    # Group by source: a count, the overcharges and the undercharges, kept
+    # apart so an undercharge never offsets an overcharge. Integer cents
+    # throughout; each invoice's whole amount stays under its one source.
+    by_source = []
+    for kind, label in _SOURCE_LABELS.items():
+        rows = [r for r in discrepant_rows if source_kinds[r["invoice_id"]] == kind]
+        if not rows:
+            continue
+        diffs = [r["difference_cents"] or 0 for r in rows]
+        by_source.append(
+            {
+                "label": label,
+                "count": len(rows),
+                "over_display": cents_to_display(sum(d for d in diffs if d > 0)),
+                "under_display": cents_to_display(sum(d for d in diffs if d < 0)),
+                "has_under": any(d < 0 for d in diffs),
+            }
+        )
+
+    # Every issue type in the saved results, for the suggested improvements:
+    # the source of each discrepant invoice, then duplicate, unresolved
+    # (no purchase-order reference) and failed invoices.
+    file_ids_by_issue = {
+        kind: [r["file_id"] for r in discrepant_rows if source_kinds[r["invoice_id"]] == kind]
+        for kind in improvement.ISSUE_ORDER[:4]
+    }
+    for issue_kind, status in (
+        ("duplicate", "duplicate"),
+        ("missing_reference", "unresolved"),
+        ("failed", "failed"),
+    ):
+        file_ids_by_issue[issue_kind] = [r["file_id"] for r in all_rows if r["status"] == status]
 
     templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -910,6 +992,9 @@ def summary(request: Request) -> HTMLResponse:
             "statuses": STATUSES,
             "recoverable_total_display": cents_to_display(recoverable_total_cents),
             "differences": differences,
-            "improvement": _SUGGESTED_IMPROVEMENT,
+            "by_source": by_source,
+            "improvements": _suggested_improvements(
+                request, file_ids_by_issue, tuple(r["file_id"] for r in all_rows)
+            ),
         },
     )

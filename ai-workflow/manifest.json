@@ -4,23 +4,38 @@
   "categories": {
     "development_tools_and_models": {
       "status": "used",
-      "files": [],
-      "notes": "Development tool: Claude Code (CLI), model Claude Opus 5, used throughout the build for all coding, planning, and testing work. No IDE plugin or extension was used alongside it."
+      "files": [
+        "ai-workflow/README.md"
+      ],
+      "notes": "Development tool: Claude Code CLI, version 2.1.295 (recorded 2026-10-09). Models: Claude Opus 5 for the build sessions of 2026-10-06, as recorded when this manifest was first written; Claude Opus 5.5 (claude-opus-5-5) for the session of 2026-10-09 that added the summary-page source column, the model-drafted process improvements, the model/API failure handling and this update. The model of each earlier session is not stored in the repository, so the Opus 5 entry rests on that first record. No IDE plugin or browser extension was used."
     },
     "plugins_and_extensions": {
-      "status": "not-used",
-      "files": [],
-      "notes": "No editor plugin or browser extension was used. All work went through the Claude Code CLI directly."
+      "status": "used",
+      "files": [
+        "ai-workflow/mcp-user-scope.json"
+      ],
+      "notes": "Playwright MCP (@playwright/mcp) extended Claude Code with browser automation: opening, clicking and screenshotting pages of the local reviewer web app. It is configured at user scope in ~/.claude.json, not in the project .mcp.json, as npx @playwright/mcp@latest; the version resolved on this machine is 0.0.83. A copy of its config entry is in ai-workflow/mcp-user-scope.json. No Claude Code plugin is installed (~/.claude/plugins/installed_plugins.json is empty), and no editor plugin or browser extension was used."
     },
     "application_models_and_parameters": {
       "status": "used",
-      "files": ["src/invoice_reconciliation/config.py"],
-      "notes": "This is the in-application model call, separate from the development tool above. Model: us.anthropic.claude-sonnet-4-5-20250929-v1:0, called through classic AWS Bedrock (boto3 bedrock-runtime, invoke_model), region us-east-1. temperature = 0.0, for repeatable extraction on the same invoice image. max_tokens = 1024. Both model_id and region read from the BEDROCK_MODEL_ID and AWS_REGION environment variables first, falling back to these same values as defaults if the variables are unset. See configuration_records for the corrected client-class history (AnthropicBedrockMantle was tried first and found unusable on this account)."
+      "files": [
+        "src/invoice_reconciliation/config.py",
+        "src/invoice_reconciliation/extraction/client.py",
+        "src/invoice_reconciliation/reconciliation/notes.py",
+        "src/invoice_reconciliation/reconciliation/improvement.py",
+        "pyproject.toml",
+        "uv.lock"
+      ],
+      "notes": "The built application makes three model calls, all to us.anthropic.claude-sonnet-4-5-20250929-v1:0 through classic AWS Bedrock (boto3 bedrock-runtime, invoke_model), region us-east-1, each with one forced tool call and temperature 0.0. (1) Extraction, extraction/client.py: max_tokens 1024, model ID and region from BEDROCK_MODEL_ID and AWS_REGION with in-code defaults (config.py). Saved real responses in tests/fixtures/bedrock_responses/ replay it without credentials. Every model or API failure becomes ModelCallError and fails only that invoice. (2) Discrepancy note, reconciliation/notes.py: max_tokens 512, up to 3 attempts, each draft checked by verify_note, falls back to a calculated note. (3) Process improvements on /summary, reconciliation/improvement.py: one call for all ranked issues, max_tokens 300 per issue, up to 3 calls, each text checked by verify_improvement, falls back to a prepared sentence. Calls (2) and (3) use the in-code model ID only. Library versions from uv.lock: anthropic 1.11.0, boto3 1.43.108, botocore 1.43.108, fastapi 0.142.2, uvicorn 0.54.0, jinja2 3.1.6. See configuration_records for the client-class history (AnthropicBedrockMantle was tried first and found unusable on this account)."
     },
     "skills": {
-      "status": "not-used",
-      "files": [],
-      "notes": "No skill was written for this exercise. The repository has three general-purpose skills under .claude/skills/ (fastapi-best-practices, modern-python-development, pytest-best-practices). These are reusable conventions, not exercise-specific work, and existed as organization-level patterns rather than being authored for this task. They are listed under agent_instructions_and_subagents because each subagent's frontmatter declares which of them it applies."
+      "status": "default",
+      "files": [
+        ".claude/skills/fastapi-best-practices/",
+        ".claude/skills/modern-python-development/",
+        ".claude/skills/pytest-best-practices/"
+      ],
+      "notes": "No skill was written for this exercise. Three general-purpose skills under .claude/skills/ (fastapi-best-practices, modern-python-development, pytest-best-practices) were installed at project setup and applied through the subagents that declare them. Status default: used as installed, nothing exercise-specific changed."
     },
     "agent_instructions_and_subagents": {
       "status": "used",
@@ -28,35 +43,45 @@
         ".claude/agents/python-backend.md",
         ".claude/agents/sqlite-database.md",
         ".claude/agents/bedrock-extraction.md",
-        ".claude/agents/testing-expert.md"
+        ".claude/agents/testing-expert.md",
+        ".claude/commands/awos/",
+        "ai-workflow/claude-memory/"
       ],
-      "notes": "Four custom subagents, each scoped to one layer of the build. python-backend: FastAPI routes, Jinja2 templates, the headless batch command, the reconciliation rules engine, and the money-conversion module (skills: fastapi-best-practices, modern-python-development). sqlite-database: schema and data-access layer, integer-cents money columns, the correction audit trail (skills: modern-python-development). bedrock-extraction: the AWS Bedrock extraction call, the vision prompt, field parsing, and the credential-free response cache (skills: modern-python-development). testing-expert: feature-level acceptance tests mapped to functional-spec.md criteria, run once per feature rather than per slice (skills: pytest-best-practices). All four were genuinely invoked during the build, not drafted and left unused."
+      "notes": "Four custom subagents, each scoped to one layer of the build. python-backend: FastAPI routes, Jinja2 templates, the headless batch command, the reconciliation rules engine, and the money-conversion module (skills: fastapi-best-practices, modern-python-development). sqlite-database: schema and data-access layer, integer-cents money columns, the correction audit trail (skills: modern-python-development). bedrock-extraction: the AWS Bedrock extraction call, the vision prompt, field parsing, and the credential-free response cache (skills: modern-python-development). testing-expert: feature-level acceptance tests mapped to functional-spec.md criteria, run once per feature rather than per slice (skills: pytest-best-practices). All four were genuinely invoked during the build, not drafted and left unused. Also used: the AWOS slash commands (.claude/commands/awos/*.md, which load .awos/commands/*.md and fill .awos/templates/*.md) that produced context/product/ and context/spec/; and three Claude Code memory files that steered the development agent across sessions (writing style, location of the real brief, measured Bedrock behaviour). The memory files live outside the repository; redacted snapshots are in ai-workflow/claude-memory/."
     },
     "hooks_and_scripts": {
-      "status": "not-used",
-      "files": [],
-      "notes": "No hook was configured for this exercise. .claude/settings.json and .claude/settings.local.json contain no hooks key."
+      "status": "used",
+      "files": [
+        ".awos/scripts/create-spec-directory.sh"
+      ],
+      "notes": "Hooks: not used. .claude/settings.json and .claude/settings.local.json contain no hooks key. Scripts: one, .awos/scripts/create-spec-directory.sh, which the /awos:spec command runs to create the numbered context/spec/<NNN>-<name>/ directory. No other script was referenced by the AI setup."
     },
     "prompts_and_rules": {
       "status": "used",
       "files": [
+        "src/invoice_reconciliation/prompts.py",
         "tasks/invoices/domain.md",
         "context/product/architecture.md",
         "context/spec/001-invoice-reconciliation-review/functional-spec.md",
         "context/spec/001-invoice-reconciliation-review/technical-considerations.md",
         "context/spec/001-invoice-reconciliation-review/tasks.md"
       ],
-      "notes": "Project-level markdown files that directed the build: the domain rules for reconciliation and duplicate detection, the architecture decisions (stack, persistence, model choice), and the functional/technical spec and task breakdown for the reviewer-UI feature. These are ordinary repository files, not a separate prompt-injection mechanism, and are already committed at their normal paths."
+      "notes": "Application prompts: src/invoice_reconciliation/prompts.py holds every prompt and response schema the application sends to a model: EXTRACTION_PROMPT and EXTRACTION_SCHEMA, build_note_prompt and NOTE_SCHEMA, build_improvement_prompt and IMPROVEMENT_SCHEMA. Rules: the domain rules (tasks/invoices/domain.md), architecture decisions and the functional and technical spec and task list that directed the build. All are committed at their normal paths."
     },
     "tool_and_mcp_settings": {
       "status": "default",
-      "files": [".mcp.json"],
-      "notes": "Two MCP servers are configured: awos-recruitment (a capability-discovery lookup used during agent setup, not during the invoice-reconciliation build itself) and aws-knowledge-mcp-server (AWS documentation lookup). Neither carries exercise-specific configuration beyond its connection URL, and both are visible in the committed .mcp.json at the repository root. No MCP server was written for this exercise."
+      "files": [
+        ".mcp.json",
+        "ai-workflow/mcp-user-scope.json"
+      ],
+      "notes": "Three MCP servers. Project scope, in the committed .mcp.json: awos-recruitment (capability discovery, used during agent setup) and aws-knowledge-mcp-server (AWS documentation lookup). User scope, in ~/.claude.json: playwright (browser automation, see plugins_and_extensions), copied to ai-workflow/mcp-user-scope.json. None carries exercise-specific configuration beyond its connection settings, and no MCP server was written for this exercise."
     },
     "permissions_and_environment_names": {
       "status": "used",
-      "files": [".env.example"],
-      "notes": "Root .env.example lists the two environment variable names the application reads: AWS_REGION and BEDROCK_MODEL_ID, both optional overrides with in-code defaults (see application_models_and_parameters). No API key variable exists in this project: AWS credentials resolve through the standard AWS credential chain (SigV4), not an application-level secret. .claude/settings.local.json exists and holds a Bash command permission allowlist and an enabled-MCP-servers list; it is not exported here because its allowlist entries embed machine-specific absolute paths (this machine's home-directory name and a per-session scratchpad UUID), which are personal-machine detail rather than exercise configuration. .claude/settings.json (the shared, committed file) contains only the awos-marketplace registry source and is reproduced in full in README.md since it holds nothing sensitive."
+      "files": [
+        ".env.example"
+      ],
+      "notes": "Root .env.example lists the three environment variable names in use, with no values: AWS_REGION and BEDROCK_MODEL_ID, optional overrides with in-code defaults (see application_models_and_parameters), and AWS_PROFILE, read by the AWS credential chain when the Bedrock session is under a named profile. No API key variable exists in this project: AWS credentials resolve through the standard AWS credential chain (SigV4), not an application-level secret. .claude/settings.local.json exists and holds a Bash command permission allowlist and an enabled-MCP-servers list; it is not exported here because its allowlist entries embed machine-specific absolute paths (this machine's home-directory name and a per-session scratchpad UUID), which are personal-machine detail rather than exercise configuration. .claude/settings.json (the shared, committed file) contains only the awos-marketplace registry source and is reproduced in full in README.md since it holds nothing sensitive."
     }
   },
   "configuration_records": [
@@ -111,7 +136,7 @@
       "original_path_or_scope": ".claude/skills/fastapi-best-practices/",
       "saved_path": ".claude/skills/fastapi-best-practices/",
       "version_or_commit": "committed at HEAD",
-      "used_during": "python-backend subagent invocations",
+      "used_during": "python-backend subagent invocations (applied as installed)",
       "status": "default",
       "redactions": []
     },
@@ -122,7 +147,7 @@
       "original_path_or_scope": ".claude/skills/modern-python-development/",
       "saved_path": ".claude/skills/modern-python-development/",
       "version_or_commit": "committed at HEAD",
-      "used_during": "python-backend, sqlite-database, bedrock-extraction subagent invocations",
+      "used_during": "python-backend, sqlite-database, bedrock-extraction subagent invocations (applied as installed)",
       "status": "default",
       "redactions": []
     },
@@ -133,7 +158,7 @@
       "original_path_or_scope": ".claude/skills/pytest-best-practices/",
       "saved_path": ".claude/skills/pytest-best-practices/",
       "version_or_commit": "committed at HEAD",
-      "used_during": "testing-expert subagent invocations",
+      "used_during": "testing-expert subagent invocations (applied as installed)",
       "status": "default",
       "redactions": []
     },
@@ -198,7 +223,7 @@
     {
       "name": "root .env.example",
       "category": "permissions_and_environment_names",
-      "purpose": "Lists the two environment variable names the application reads, with no values",
+      "purpose": "Lists the three environment variable names in use (AWS_PROFILE, AWS_REGION, BEDROCK_MODEL_ID), with no values",
       "original_path_or_scope": ".env.example",
       "saved_path": ".env.example",
       "version_or_commit": "new file created for this submission",
@@ -206,6 +231,111 @@
       "status": "used",
       "redactions": [
         "no AWS access key, secret key, or session token appears anywhere; credentials resolve through the AWS credential chain outside the application, so there is no credential value to redact"
+      ]
+    },
+    {
+      "name": "Claude Code CLI",
+      "category": "development_tools_and_models",
+      "purpose": "Development tool for all coding, planning and testing",
+      "original_path_or_scope": "local CLI install",
+      "saved_path": "not applicable",
+      "version_or_commit": "2.1.295 (recorded 2026-10-09); models Claude Opus 5 (2026-10-06 sessions, as first recorded) and Claude Opus 5.5 (2026-10-09 session)",
+      "used_during": "the whole build",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "application prompts",
+      "category": "prompts_and_rules",
+      "purpose": "Every prompt and response schema the application sends to a model: extraction, discrepancy note, process improvements",
+      "original_path_or_scope": "src/invoice_reconciliation/prompts.py",
+      "saved_path": "src/invoice_reconciliation/prompts.py",
+      "version_or_commit": "committed; see git log src/invoice_reconciliation/prompts.py (improvement prompt added 2026-10-09)",
+      "used_during": "every model call the application makes",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "discrepancy note drafting",
+      "category": "application_models_and_parameters",
+      "purpose": "Model-drafted discrepancy note per discrepant invoice; max_tokens 512, temperature 0.0, up to 3 attempts checked by verify_note, calculated fallback",
+      "original_path_or_scope": "src/invoice_reconciliation/reconciliation/notes.py",
+      "saved_path": "src/invoice_reconciliation/reconciliation/notes.py",
+      "version_or_commit": "committed; see git log src/invoice_reconciliation/reconciliation/notes.py",
+      "used_during": "batch run and corrections, when model notes are on",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "process improvement drafting",
+      "category": "application_models_and_parameters",
+      "purpose": "One model call drafts the improvement for each top-ranked issue on /summary; max_tokens 300 per issue, temperature 0.0, up to 3 calls, each text checked by verify_improvement, prepared-sentence fallback",
+      "original_path_or_scope": "src/invoice_reconciliation/reconciliation/improvement.py",
+      "saved_path": "src/invoice_reconciliation/reconciliation/improvement.py",
+      "version_or_commit": "added 2026-10-09; see git log src/invoice_reconciliation/reconciliation/improvement.py",
+      "used_during": "each /summary load whose issues have no cached draft",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "library versions",
+      "category": "application_models_and_parameters",
+      "purpose": "Locked versions of the model SDKs and web stack",
+      "original_path_or_scope": "pyproject.toml, uv.lock",
+      "saved_path": "pyproject.toml, uv.lock",
+      "version_or_commit": "anthropic 1.11.0, boto3 1.43.108, botocore 1.43.108, fastapi 0.142.2, uvicorn 0.54.0, jinja2 3.1.6; Python 3.11",
+      "used_during": "every run",
+      "status": "used",
+      "redactions": []
+    },
+    {
+      "name": "AWOS slash commands",
+      "category": "agent_instructions_and_subagents",
+      "purpose": "/awos:product, roadmap, architecture, spec, tech, tasks, implement, verify, hire: the spec-driven workflow that produced context/ and drove the slices",
+      "original_path_or_scope": ".claude/commands/awos/*.md, .awos/commands/*.md, .awos/templates/*.md",
+      "saved_path": ".claude/commands/awos/, .awos/commands/, .awos/templates/",
+      "version_or_commit": "installed in commit 894bfe1 (AWOS install); .awos/.migration-version records the AWOS version",
+      "used_during": "planning (product, roadmap, architecture, spec, tech, tasks), agent hiring, implementation and verification",
+      "status": "default",
+      "redactions": []
+    },
+    {
+      "name": "create-spec-directory.sh",
+      "category": "hooks_and_scripts",
+      "purpose": "Creates the numbered context/spec/<NNN>-<name>/ directory for a new spec",
+      "original_path_or_scope": ".awos/scripts/create-spec-directory.sh",
+      "saved_path": ".awos/scripts/create-spec-directory.sh",
+      "version_or_commit": "installed in commit 894bfe1",
+      "used_during": "/awos:spec, creating context/spec/001-invoice-reconciliation-review/",
+      "status": "default",
+      "redactions": []
+    },
+    {
+      "name": "Claude Code project memory",
+      "category": "agent_instructions_and_subagents",
+      "purpose": "Three memory files the development agent loads each session: writing style (ASD-STE100 and Orwell), location and scope of the real brief, measured Bedrock behaviour",
+      "original_path_or_scope": "~/.claude/projects/<project>/memory/ (outside the repository)",
+      "saved_path": "ai-workflow/claude-memory/",
+      "version_or_commit": "snapshot taken 2026-10-09",
+      "used_during": "every development session from 2026-10-06",
+      "status": "used",
+      "redactions": [
+        "home-directory path replaced with <home>",
+        "AWS account ID replaced with <aws-account-id>",
+        "originSessionId values replaced with <session-id>"
+      ]
+    },
+    {
+      "name": "Playwright MCP",
+      "category": "plugins_and_extensions",
+      "purpose": "Browser automation for Claude Code: drive and screenshot the local reviewer web app",
+      "original_path_or_scope": "~/.claude.json, mcpServers.playwright (user scope)",
+      "saved_path": "ai-workflow/mcp-user-scope.json",
+      "version_or_commit": "@playwright/mcp@latest, unpinned; 0.0.83 resolved on this machine (npx cache, 2026-10-09)",
+      "used_during": "checking the reviewer web app in a browser",
+      "status": "used",
+      "redactions": [
+        "none needed: the entry holds a command and arguments only, with an empty env"
       ]
     }
   ],

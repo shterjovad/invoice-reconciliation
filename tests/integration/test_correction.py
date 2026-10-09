@@ -387,3 +387,62 @@ def test_a_reviewer_note_edit_survives_a_recalculation(
     detail_body = client.get(f"/invoices/{invoice_id}").text
     assert edited_text in detail_body
     assert "superseded" in detail_body.lower() or "out-of-date" in detail_body.lower()
+
+
+def test_a_correction_changes_the_summary_source_and_groups_on_the_next_request(
+    client: TestClient, db_path: Path
+) -> None:
+    """The summary reads the saved results on every request. quantity-overbill
+    bills 8 units against 5 ordered: source Quantity. A reviewer corrects
+    the quantity to 5 and leaves the total at 16000 cents. The unit price
+    and the quantity now agree with PO-1, but the total does not, so the
+    source becomes Total only and the difference stays 6000 cents."""
+    invoice_id = _invoice_id_for(db_path, "quantity-overbill")
+    before = client.get("/summary").text
+    assert "Quantity</td>" in before
+
+    response = client.post(
+        f"/invoices/{invoice_id}/fields/quantity",
+        data={"value": "5"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    after = client.get("/summary").text
+    assert "Total only" in after
+    assert "Quantity</td>" not in after
+    assert _result(db_path, invoice_id)["difference_cents"] == 6000
+
+
+def test_the_improvements_follow_the_issue_counts_after_a_correction(
+    client: TestClient, db_path: Path
+) -> None:
+    """Fresh batch: unit price differs on 2 invoices (wrong-price,
+    undercharge), so it is the top issue and recurring. Quantity,
+    duplicate and missing reference have 1 invoice each; the tie order puts
+    quantity second, as a single case.
+
+    A reviewer corrects undercharge's unit price from 1800 to 2000 cents
+    and leaves its total at 9000. Its source becomes Total only. Every
+    issue type now has 1 invoice, so nothing recurs: the page says so and
+    shows the top two single cases, unit price (wrong-price) and quantity
+    (quantity-overbill)."""
+    before = client.get("/summary").text
+    section = before[before.index("Suggested improvement"):]
+    assert "Unit price differs" in section
+    assert "Recurring, 2 invoices" in section
+    assert "wrong-price" in section and "undercharge" in section
+    assert "Quantity differs" in section and "Single case, 1 invoice" in section
+
+    invoice_id = _invoice_id_for(db_path, "undercharge")
+    response = client.post(
+        f"/invoices/{invoice_id}/fields/unit_cents", data={"value": "2000"}, follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    after = client.get("/summary").text
+    section = after[after.index("Suggested improvement"):]
+    assert "No issue recurs yet" in section
+    assert "Recurring" not in section
+    assert "wrong-price" in section and "quantity-overbill" in section
+    assert "undercharge" not in section

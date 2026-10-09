@@ -1,6 +1,6 @@
 """Every prompt and response schema this project sends to a model, in one place.
 
-Two model calls exist in this codebase:
+Three model calls exist in this codebase:
 
 1. **Extraction** (``EXTRACTION_PROMPT`` / ``EXTRACTION_SCHEMA``) — read one
    scanned invoice image and return its seven fields as structured output.
@@ -11,6 +11,11 @@ Two model calls exist in this codebase:
    a function of the invoice's own figures (invoice number, PO id,
    quantity, the three computed totals), not a fixed string, so it stays a
    function here rather than a constant.
+3. **Improvement drafting** (``build_improvement_prompt`` /
+   ``IMPROVEMENT_SCHEMA``) — phrase a process improvement for every issue
+   type that code counted in the saved results, all in one call. Called
+   from ``reconciliation.improvement.draft_improvements``. Code chooses the
+   conclusion; the model gets no dollar figure.
 
 Neither prompt supplies a figure the calling code did not already compute
 or verify — extraction returns what is printed on the page; note-drafting
@@ -42,6 +47,9 @@ __all__ = [
     "NOTE_TOOL_NAME",
     "NOTE_SCHEMA",
     "build_note_prompt",
+    "IMPROVEMENT_TOOL_NAME",
+    "IMPROVEMENT_SCHEMA",
+    "build_improvement_prompt",
 ]
 
 # ---------------------------------------------------------------------------
@@ -339,4 +347,93 @@ def _source_block(source: DifferenceSource | None) -> str:
         + facts
         + "\nState them as facts only. Do not say why they differ and do "
         "not suggest what any figure should be.\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Improvement drafting: phrase one process improvement for a recurring
+# difference the summary page already counted.
+# ---------------------------------------------------------------------------
+
+IMPROVEMENT_TOOL_NAME = "record_process_improvements"
+
+IMPROVEMENT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "improvements": {
+            "type": "array",
+            "description": "One entry for each issue listed, in the same order.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "issue": {
+                        "type": "string",
+                        "description": "The issue key, exactly as listed.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": (
+                            "Two short sentences: which invoices have the "
+                            "issue, then the conclusion exactly as given."
+                        ),
+                    },
+                },
+                "required": ["issue", "text"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["improvements"],
+    "additionalProperties": False,
+}
+
+
+def build_improvement_prompt(
+    *, issues: list[dict], rejection_reasons: dict[str, str]
+) -> str:
+    """Build the prompt that drafts every listed issue in one call.
+
+    Each entry of ``issues`` has ``key``, ``file_ids``, ``what_happened``,
+    ``recurring`` and ``conclusion``. Code has already counted each issue
+    and chosen its conclusion (what to recheck); the model only writes the
+    first, plain sentence of each and ends with the conclusion word for
+    word. It gets no dollar figure, and ``improvement.verify_improvement``
+    rejects any that appears. A single case (``recurring`` False) must not
+    be called recurring. ``rejection_reasons`` maps an issue key to why its
+    previous draft was rejected; on a retry only those issues are listed.
+    """
+    blocks = []
+    for issue in issues:
+        count = len(issue["file_ids"])
+        block = (
+            f"Issue key: {issue['key']}\n"
+            f"- Invoice name{'s' if count > 1 else ''}: {', '.join(issue['file_ids'])} "
+            "(file names, not descriptions)\n"
+            f"- What happened: {'they' if count > 1 else 'it'} {issue['what_happened']}\n"
+            f'- Sentence 2, exactly: "{issue["conclusion"]}"\n'
+        )
+        if not issue["recurring"]:
+            block += "- This happened once. Do not call it recurring or a pattern.\n"
+        if issue["key"] in rejection_reasons:
+            block += (
+                "- Your previous draft for this issue was rejected because it "
+                f"{rejection_reasons[issue['key']]}. Fix this.\n"
+            )
+        blocks.append(block)
+
+    return (
+        "Write a short process improvement for each issue below, for an "
+        "accounts-payable review page. Each improvement is two short, plain "
+        "sentences.\n\n"
+        "Sentence 1: name each invoice exactly as written, as the subject, "
+        'and say what happened. For example: "Invoice inv-7 bills a quantity '
+        'that differs from the quantity ordered or received."\n'
+        "Sentence 2: the sentence given for that issue, word for word.\n"
+        "\nRules:\n"
+        "- Return one entry per issue, with its issue key, in the order listed.\n"
+        "- Name only the invoices listed for that issue.\n"
+        "- No dollar amounts.\n"
+        "- No blame. Do not use words like error, mistake, overcharge, "
+        "fraud, wrongly, deliberately, incorrectly or negligent.\n"
+        "\n" + "\n".join(blocks)
     )

@@ -24,6 +24,13 @@ pinned to the one extraction tool), whose ``input_schema`` is the seven-field
 schema in ``prompts.py`` (``EXTRACTION_SCHEMA``). Classic Bedrock's
 ``invoke_model`` has no ``output_config`` structured-output parameter, so the
 forced single tool call is still how the response shape is constrained.
+
+**Model and API failures.** Every failure of the call itself (no
+credentials, throttling, an access or validation error from Bedrock, a
+network timeout, a response body that is not JSON) is raised as one
+project error, ``ModelCallError``, with a readable reason. The caller
+(``db.ingest``) catches it for each invoice, marks that invoice failed and
+continues, so one failed call never stops the batch.
 """
 
 from __future__ import annotations
@@ -33,6 +40,21 @@ import json
 
 from invoice_reconciliation.config import ModelConfig
 from invoice_reconciliation.prompts import EXTRACTION_PROMPT, EXTRACTION_SCHEMA
+
+
+class ModelCallError(Exception):
+    """The model call itself failed: no credentials, throttling, network, or
+    a response body that could not be read."""
+
+
+def _describe(exc: Exception) -> str:
+    """A readable reason, with the Bedrock error code when there is one."""
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = response.get("Error", {}).get("Code")
+        if code:
+            return f"{type(exc).__name__} ({code}): {exc}"
+    return f"{type(exc).__name__}: {exc}"
 
 __all__ = ["build_client", "extract_invoice_fields"]
 
@@ -50,9 +72,12 @@ def build_client(config: ModelConfig):
     never requires the AWS credential chain to resolve. The credential
     chain is only consulted once this function actually runs.
     """
-    import boto3
+    try:
+        import boto3
 
-    return boto3.client("bedrock-runtime", region_name=config.region)
+        return boto3.client("bedrock-runtime", region_name=config.region)
+    except Exception as exc:  # noqa: BLE001 - any failure here means no model access
+        raise ModelCallError(f"could not build the Bedrock client: {_describe(exc)}") from exc
 
 
 def _image_content_block(image_bytes: bytes, *, media_type: str = "image/png") -> dict:
@@ -110,8 +135,18 @@ def extract_invoice_fields(client, config: ModelConfig, image_bytes: bytes) -> d
         ],
     }
 
-    response = client.invoke_model(
-        modelId=config.model_id,
-        body=json.dumps(body),
-    )
-    return json.loads(response["body"].read())
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    try:
+        response = client.invoke_model(
+            modelId=config.model_id,
+            body=json.dumps(body),
+        )
+        return json.loads(response["body"].read())
+    except (BotoCoreError, ClientError) as exc:
+        # BotoCoreError covers NoCredentialsError, timeouts and connection
+        # errors; ClientError covers Bedrock's own refusals, such as
+        # ThrottlingException or AccessDeniedException.
+        raise ModelCallError(f"model call failed: {_describe(exc)}") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ModelCallError(f"model response could not be read: {_describe(exc)}") from exc

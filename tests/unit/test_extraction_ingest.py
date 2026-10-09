@@ -181,3 +181,134 @@ def test_a_missing_image_fails_only_that_invoice(conn, monkeypatch, tmp_path):
             assert outcome.succeeded is True, (
                 f"{file_id} should have succeeded; got {outcome.error}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Model and API failures (simulated). The real ``extract_invoice_fields``
+# runs against a fake Bedrock client, so the botocore errors pass through
+# the same code a live run uses.
+# ---------------------------------------------------------------------------
+
+import base64
+import json
+from io import BytesIO
+
+from botocore.exceptions import ClientError, NoCredentialsError
+
+from invoice_reconciliation import cli
+from invoice_reconciliation.extraction.client import ModelCallError
+
+_SEED_FILE_IDS = (
+    "clean",
+    "wrong-price",
+    "duplicate",
+    "missing-reference",
+    "quantity-overbill",
+    "undercharge",
+)
+
+
+class _FakeBedrock:
+    """A fake ``bedrock-runtime`` client. ``fail(body)`` returns an exception
+    to raise for that request, or ``None`` to answer with a success."""
+
+    def __init__(self, fail):
+        self._fail = fail
+
+    def invoke_model(self, *, modelId, body):
+        error = self._fail(body)
+        if error is not None:
+            raise error
+        return {"body": BytesIO(json.dumps(_FAKE_SUCCESS_RESPONSE).encode("utf-8"))}
+
+
+def _throttle() -> ClientError:
+    return ClientError(
+        {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}, "InvokeModel"
+    )
+
+
+def _ingest_live(conn, monkeypatch, client):
+    monkeypatch.setattr(ingest_module, "build_client", lambda config: client)
+    ingest_module.ingest_reference_data(conn, seed_path=SEED_PATH)
+    outcomes = ingest_module.ingest_invoices_via_extraction(
+        conn, seed_path=SEED_PATH, images_dir=IMAGES_DIR, model_config=ModelConfig()
+    )
+    return {outcome.file_id: outcome for outcome in outcomes}
+
+
+def test_a_throttled_call_fails_only_that_invoice(conn, monkeypatch):
+    """Bedrock throttles the call for wrong-price only. That invoice is
+    failed with the Bedrock error code in its reason; the other five are
+    extracted, and the batch does not raise."""
+    wrong_price_b64 = base64.standard_b64encode(
+        (IMAGES_DIR / "wrong-price.png").read_bytes()
+    ).decode("ascii")
+    client = _FakeBedrock(lambda body: _throttle() if wrong_price_b64 in body else None)
+
+    by_file_id = _ingest_live(conn, monkeypatch, client)
+
+    assert by_file_id["wrong-price"].succeeded is False
+    assert "ThrottlingException" in by_file_id["wrong-price"].error
+    for file_id in set(_SEED_FILE_IDS) - {"wrong-price"}:
+        assert by_file_id[file_id].succeeded is True, by_file_id[file_id].error
+
+    row = repository.get_invoice_by_file_id(conn, file_id="wrong-price")
+    assert bool(row["extraction_failed"]) is True
+    assert "ThrottlingException" in row["extraction_failure_reason"]
+
+
+def test_missing_credentials_fail_every_invoice_without_stopping_the_batch(conn, monkeypatch):
+    """With no AWS credentials every call raises NoCredentialsError. Every
+    invoice is marked failed with that reason; nothing raises."""
+    client = _FakeBedrock(lambda body: NoCredentialsError())
+
+    by_file_id = _ingest_live(conn, monkeypatch, client)
+
+    assert set(by_file_id) == set(_SEED_FILE_IDS)
+    for outcome in by_file_id.values():
+        assert outcome.succeeded is False
+        assert "NoCredentialsError" in outcome.error
+
+
+def test_a_client_that_cannot_be_built_fails_every_invoice_with_its_reason(conn, monkeypatch):
+    def _no_client(config):
+        raise ModelCallError("could not build the Bedrock client: NoRegionError")
+
+    monkeypatch.setattr(ingest_module, "build_client", _no_client)
+    ingest_module.ingest_reference_data(conn, seed_path=SEED_PATH)
+    outcomes = ingest_module.ingest_invoices_via_extraction(
+        conn, seed_path=SEED_PATH, images_dir=IMAGES_DIR, model_config=ModelConfig()
+    )
+
+    assert len(outcomes) == len(_SEED_FILE_IDS)
+    for outcome in outcomes:
+        assert outcome.succeeded is False
+        assert "could not build the Bedrock client" in outcome.error
+
+
+def test_cli_extract_without_credentials_finishes_and_reports_failed(
+    tmp_path, monkeypatch, capsys
+):
+    """``cli --extract`` with no credentials: no traceback. The batch
+    completes, every invoice is saved as ``failed`` with a reason, and the
+    exit code is EXIT_PROCESSING_FAILED, not the seed-check code."""
+    monkeypatch.setattr(
+        ingest_module, "build_client", lambda config: _FakeBedrock(lambda body: NoCredentialsError())
+    )
+    db_path = tmp_path / "no_credentials.sqlite"
+
+    exit_code = cli.main(["--extract", "--reset-db", "--no-model-notes", "--db-path", str(db_path)])
+
+    assert exit_code == cli.EXIT_PROCESSING_FAILED
+    output = capsys.readouterr().out
+    assert "Traceback" not in output
+    assert "NoCredentialsError" in output
+
+    connection = get_connection(db_path)
+    try:
+        rows = repository.list_invoices_with_results(connection)
+    finally:
+        connection.close()
+    assert {row["file_id"] for row in rows} == set(_SEED_FILE_IDS)
+    assert {row["status"] for row in rows} == {"failed"}

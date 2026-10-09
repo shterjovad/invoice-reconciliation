@@ -52,7 +52,11 @@ from invoice_reconciliation.extraction.cache import (
     CacheMissError,
     ResponseCache,
 )
-from invoice_reconciliation.extraction.client import build_client, extract_invoice_fields
+from invoice_reconciliation.extraction.client import (
+    ModelCallError,
+    build_client,
+    extract_invoice_fields,
+)
 from invoice_reconciliation.extraction.parser import ExtractionError, parse
 from invoice_reconciliation.money import MoneyFormatError, dollars_to_cents
 
@@ -376,7 +380,16 @@ def ingest_invoices_via_extraction(
 
     config = model_config if model_config is not None else ModelConfig()
     needs_live_client = refresh_cache or not use_cache
-    client = build_client(config) if needs_live_client else None
+    # If the client cannot be built (no boto3, no region), no live call can
+    # work. Every invoice is then marked failed with that reason, and the
+    # batch still completes.
+    client = None
+    client_error: ModelCallError | None = None
+    if needs_live_client:
+        try:
+            client = build_client(config)
+        except ModelCallError as exc:
+            client_error = exc
     cache = ResponseCache(cache_dir)
     outcomes: list[ExtractionIngestOutcome] = []
 
@@ -419,6 +432,8 @@ def ingest_invoices_via_extraction(
 
         response_source = "cache" if (use_cache and not refresh_cache) else "live"
         try:
+            if client_error is not None and needs_live_client:
+                raise client_error
             image_bytes = image_path.read_bytes()
             if refresh_cache:
                 raw_response = extract_invoice_fields(client, config, image_bytes)
@@ -439,7 +454,13 @@ def ingest_invoices_via_extraction(
             # reaches ``extracted_fields``.
             unit_cents = dollars_to_cents(fields.unit_price)
             total_cents = dollars_to_cents(fields.total)
-        except (ExtractionError, CacheMissError, MoneyFormatError, OSError) as exc:
+        except (
+            ExtractionError,
+            CacheMissError,
+            MoneyFormatError,
+            ModelCallError,
+            OSError,
+        ) as exc:
             # ExtractionError: the response failed shape/schema/domain
             # validation. CacheMissError: no usable saved response for
             # this file_id (absent, unreadable, or a stale hash against
@@ -449,7 +470,9 @@ def ingest_invoices_via_extraction(
             # fails here (defence in depth). OSError: the image file
             # vanished or could not be read between the existence check
             # above and this read — all four isolate to this one invoice
-            # rather than aborting the batch, per the project's
+            # rather than aborting the batch. ModelCallError: the live
+            # call itself failed (no credentials, throttling, timeout) —
+            # this isolates the same way, per the project's
             # established failure-isolation contract
             # (pipeline.recalculate_one does the same for a malformed
             # stored money value).

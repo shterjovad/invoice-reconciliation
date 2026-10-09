@@ -29,7 +29,10 @@ from datetime import datetime, timezone
 from invoice_reconciliation.db import repository
 from invoice_reconciliation.money import MoneyFormatError
 from invoice_reconciliation.reconciliation import matcher, rules
-from invoice_reconciliation.reconciliation.difference_source import difference_source
+from invoice_reconciliation.reconciliation.difference_source import (
+    DifferenceSource,
+    difference_source,
+)
 from invoice_reconciliation.reconciliation.notes import draft_discrepancy_note, draft_note
 
 __all__ = [
@@ -287,21 +290,11 @@ def ensure_discrepancy_note(
     quantity = int(purchase_order["quantity"]) if purchase_order is not None else 0
     unit_cents = int(purchase_order["unit_cents"]) if purchase_order is not None else 0
 
-    # Where the difference comes from: the invoice's own billed unit price
-    # and quantity set against the PO and the receipt. The brief asks to
-    # "Summarize the supported price or quantity differences and their
-    # amounts". A missing figure gives no source, never a guessed one.
-    receipt = (
-        repository.get_receipt_for_po(conn, po_id=result_row["matched_po_id"])
-        if result_row["matched_po_id"] is not None
-        else None
-    )
-    source = difference_source(
-        billed_unit_cents=_as_int(current_fields.get("unit_cents")),
-        agreed_unit_cents=unit_cents if purchase_order is not None else None,
-        billed_quantity=_as_int(current_fields.get("quantity")),
-        ordered_quantity=quantity if purchase_order is not None else None,
-        received_quantity=int(receipt["quantity"]) if receipt is not None else None,
+    source = source_of_difference(
+        conn,
+        current_fields=current_fields,
+        matched_po_id=result_row["matched_po_id"],
+        purchase_order=purchase_order,
     )
 
     try:
@@ -448,6 +441,40 @@ def run_batch(
             )
         )
     return outcomes
+
+
+def source_of_difference(
+    conn: sqlite3.Connection,
+    *,
+    current_fields: dict[str, str | None],
+    matched_po_id: str | None,
+    purchase_order: sqlite3.Row | None = None,
+) -> DifferenceSource | None:
+    """Where an invoice's difference comes from, for the note and the summary.
+
+    The invoice's own billed unit price and quantity, set against the
+    matched purchase order and its receipt. The brief asks to "Summarize the
+    supported price or quantity differences and their amounts". A missing
+    figure gives no source, never a guessed one. ``purchase_order`` may be
+    passed in when the caller has already read it.
+    """
+    if matched_po_id is None:
+        return None
+    supplier_id = current_fields.get("supplier_id")
+    if purchase_order is None and supplier_id is not None:
+        purchase_order = repository.get_purchase_order(
+            conn, supplier_id=supplier_id, po_id=matched_po_id
+        )
+    if purchase_order is None:
+        return None
+    receipt = repository.get_receipt_for_po(conn, po_id=matched_po_id)
+    return difference_source(
+        billed_unit_cents=_as_int(current_fields.get("unit_cents")),
+        agreed_unit_cents=int(purchase_order["unit_cents"]),
+        billed_quantity=_as_int(current_fields.get("quantity")),
+        ordered_quantity=int(purchase_order["quantity"]),
+        received_quantity=int(receipt["quantity"]) if receipt is not None else None,
+    )
 
 
 def _as_int(value: str | None) -> int | None:

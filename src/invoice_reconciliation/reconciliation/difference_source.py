@@ -46,6 +46,22 @@ class DifferenceSource:
         )
 
     @property
+    def kind(self) -> str:
+        """Which figures differ: ``price``, ``quantity``, ``price_and_quantity``,
+        or ``total_only`` (both agree, but the billed total does not).
+
+        One label per invoice. The amount is never split between price and
+        quantity: the rules give no way to allocate it.
+        """
+        if self.price_differs and self.quantity_differs:
+            return "price_and_quantity"
+        if self.price_differs:
+            return "price"
+        if self.quantity_differs:
+            return "quantity"
+        return "total_only"
+
+    @property
     def billed_unit_display(self) -> str:
         return cents_to_display(self.billed_unit_cents)
 

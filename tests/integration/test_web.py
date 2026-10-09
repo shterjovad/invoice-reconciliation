@@ -563,6 +563,53 @@ def test_summary_page_has_no_send_control(client: TestClient) -> None:
     _assert_no_send_control(response.text)
 
 
+def _summary_rows(body: str, section_class: str) -> list[list[str]]:
+    """The text of each body row's cells in one summary section's table."""
+    section = _re.search(
+        rf'<section class="panel {section_class}">.*?</section>', body, _re.DOTALL
+    )
+    assert section is not None, f"summary page has no {section_class} section"
+    tbody = _re.search(r"<tbody>(.*?)</tbody>", section.group(0), _re.DOTALL)
+    assert tbody is not None
+    return [
+        [_re.sub(r"<[^>]+>", "", cell).strip() for cell in _re.findall(r"<td[^>]*>(.*?)</td>", row, _re.DOTALL)]
+        for row in _re.findall(r"<tr>(.*?)</tr>", tbody.group(1), _re.DOTALL)
+    ]
+
+
+def test_summary_page_states_whether_each_difference_is_price_or_quantity(
+    client: TestClient,
+) -> None:
+    """The brief: "Summarize the supported price or quantity differences
+    and their amounts". wrong-price bills $24.00 against an agreed $20.00
+    and undercharge $18.00 against $20.00, quantity 5 each: unit price.
+    quantity-overbill bills 8 units against 5 ordered and 5 received at
+    the agreed price: quantity."""
+    rows = _summary_rows(client.get("/summary").text, "differences")
+    source_by_file = {row[0]: row[3] for row in rows}
+
+    assert source_by_file == {
+        "wrong-price": "Unit price",
+        "quantity-overbill": "Quantity",
+        "undercharge": "Unit price",
+    }
+
+
+def test_summary_page_groups_differences_by_source_without_netting(
+    client: TestClient,
+) -> None:
+    """Unit price: wrong-price +2000 and undercharge -1000 cents stay apart,
+    as $20.00 over and $-10.00 under, never netted to $10.00. Quantity:
+    quantity-overbill +6000 cents, nothing under. The two overcharge
+    columns add to the $80.00 recoverable total."""
+    rows = _summary_rows(client.get("/summary").text, "by-source")
+
+    assert rows == [
+        ["Unit price", "2", "$20.00", "$-10.00"],
+        ["Quantity", "1", "$60.00", "$0.00"],
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Provenance citations on the detail page
 # ---------------------------------------------------------------------------

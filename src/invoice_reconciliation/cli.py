@@ -277,15 +277,23 @@ def main(argv: list[str] | None = None) -> int:
         f"(reset_db={args.reset_db}, extract={args.extract}, "
         f"from_cache={args.from_cache}, refresh_cache={args.refresh_cache})..."
     )
-    extraction_outcomes = run_ingest(
-        db_path=args.db_path,
-        seed_path=seed_path if seed_path.exists() else DEFAULT_SEED_PATH,
-        images_dir=images_dir,
-        reset_db=args.reset_db,
-        use_extraction=args.extract,
-        use_cache=args.from_cache,
-        refresh_cache=args.refresh_cache,
-    )
+    try:
+        extraction_outcomes = run_ingest(
+            db_path=args.db_path,
+            seed_path=seed_path if seed_path.exists() else DEFAULT_SEED_PATH,
+            images_dir=images_dir,
+            reset_db=args.reset_db,
+            use_extraction=args.extract,
+            use_cache=args.from_cache,
+            refresh_cache=args.refresh_cache,
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI boundary: report, don't crash
+        # ingest isolates each invoice's failures itself; reaching here
+        # means a failure outside any one invoice (for example an
+        # unreadable seed file).
+        logger.exception("Ingest raised an unhandled exception")
+        print(f"Ingest: CRASHED before completing — {type(exc).__name__}: {exc}")
+        return EXIT_PROCESSING_FAILED
     if extraction_outcomes is not None:
         _print_extraction_report(extraction_outcomes)
 

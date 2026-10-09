@@ -80,8 +80,19 @@ saved responses. It needs a valid AWS session with Bedrock access in
 
 If the session lands under a named profile rather than `default`, set
 `export AWS_PROFILE=<name>` first. Without it, the credential chain resolves
-`default` and the run fails in a way that reads like a code defect when it
-is a configuration one.
+`default` and every invoice fails.
+
+**A model or API failure never stops the batch.** A missing credential,
+throttling (`ThrottlingException`), an access error from Bedrock, a
+timeout, or a response that cannot be read fails only the invoice
+concerned. That invoice is saved as `failed`, with the reason, and the
+batch continues. The reason shows in the CLI report, on the queue's
+`failed` filter and on the invoice's detail page. With no credentials at
+all, every invoice is `failed` with `NoCredentialsError` in its reason,
+and the CLI exits with code 2, not a traceback.
+`extraction/client.py` turns every such error into one `ModelCallError`;
+`db/ingest.py` catches it for each invoice. Tests simulate each case with a
+fake Bedrock client (`tests/unit/test_extraction_ingest.py`).
 
 To force fresh live calls and overwrite the saved responses, add
 `--refresh-cache` in place of `--from-cache`. `--from-cache` and
@@ -206,18 +217,60 @@ eight-hour budget. The first commit is timestamped 17:25 and the last
 documents, the build, the tests, and the submission documents. It does not
 count reading the brief and the starter pack beforehand.
 
-## The suggested process improvement
+## The suggested process improvements
 
-The `/summary` page states one improvement, drawn from the batch rather
-than from general advice. Its exact text:
+The `/summary` page builds its improvements from the saved results each
+time it loads. One discrepancy is a case for a reviewer, not a process
+problem, so the page looks for issue types that occur across invoices.
 
-> Confirm agreed unit prices against the supplier's price list before
-> invoicing — wrong-price and undercharge both bill a different unit price
-> than the matched purchase order agreed.
+1. **Code counts every issue type in the database.**
 
-Two of the six invoices differ from their purchase order on unit price:
-one above the agreed price and one below. A check at the point of
-invoicing would catch both before they reach reconciliation.
+   | Issue type | Where it comes from | Conclusion (chosen by code) |
+   |---|---|---|
+   | Unit price differs | discrepant, source unit price | Recheck unit prices against the purchase order before shipping. |
+   | Quantity differs | discrepant, source quantity | Recheck quantities against the purchase order before shipping. |
+   | Unit price and quantity differ | discrepant, both | Recheck unit prices and quantities against the purchase order before shipping. |
+   | Total differs | discrepant, total only | Recheck invoice totals against the purchase order before shipping. |
+   | Duplicate invoice | status `duplicate` | Check each invoice number against invoices already received before approval. |
+   | Missing purchase-order reference | status `unresolved` | Ask for a purchase-order reference on every invoice. |
+   | Invoice could not be read | status `failed` | Check the scan quality of each invoice when it arrives. |
+
+2. **Code ranks them and keeps the top two.** An issue is *recurring*
+   only when 2 or more invoices have it. A count of 1 is labelled
+   "Single case", and when no issue recurs the page says "No issue recurs
+   yet". On a tie, the order of the table above decides.
+3. **One model call writes one plain sentence per issue** on which
+   invoices have it (`reconciliation/improvement.py`, prompt in
+   `prompts.build_improvement_prompt`). It gets no dollar figure. It must
+   end with the conclusion from the table, word for word.
+   `verify_improvement` rejects a draft that leaves out the conclusion,
+   uses blame words, writes a dollar figure, leaves out an invoice, names
+   another invoice, does not describe the issue, or calls a single case
+   recurring. Each text is checked on its own. A retry call asks again
+   only for the rejected issues, with the reason, up to three calls in
+   all; a text that passed is kept. After that, or with no model access, the page uses a prepared
+   sentence and labels it. The blame-word check keeps the brief's rule:
+   "do not treat a discrepancy as proof of wrongdoing."
+4. **With no issue at all,** the page says "No issues in this batch, so no
+   improvement is suggested."
+
+The issue types, the rule of 2 or more, the top two and the tie order are
+presentation choices, not domain rules: they change no status and no
+amount.
+
+For the fresh batch, a live model run gave:
+
+> **Unit price differs · Recurring, 2 invoices.** Invoices wrong-price and
+> undercharge bill a unit price that differs from the purchase order.
+> Recheck unit prices against the purchase order before shipping.
+>
+> **Quantity differs · Single case, 1 invoice.** Invoice quantity-overbill
+> bills a quantity that differs from the quantity ordered or received.
+> Recheck quantities against the purchase order before shipping.
+
+The web app keeps the drafts for each set of issues, so it calls the model
+again only when the issues change, for example after a correction. With
+more issue types in future, the page still makes one call.
 
 ---
 
@@ -247,7 +300,7 @@ both return `12000`; `dollars_to_cents(5)` returns `500`.
 
 ## Settled ambiguities
 
-Six gaps in the brief or the supplied data came up during the build. Each
+Eleven gaps in the brief or the supplied data came up during the build. Each
 one is recorded here with the gap, the behaviour chosen, and the reason —
 not resolved silently.
 
@@ -329,6 +382,147 @@ later copy is `duplicate` with `count_as_payable` false.
 **Reason.** The brief calls for identifying duplicates by supplier ID and
 invoice number. `received_at` gives a defined order for which copy counts
 as the original when more than one invoice shares that pair.
+
+### 7. Open question: is a discrepancy only about the billed total?
+
+**Status: open.** Not decided; recorded here as the brief asks.
+
+**The gap.** The brief defines the discrepancy amount by the total:
+
+> Billed amount minus expected amount is the discrepancy
+
+It names only one separate comparison, for quantity:
+
+> Expected line amount equals ordered quantity times agreed unit price.
+> Compare billed quantity with both ordered and received quantity.
+
+So two things make an invoice discrepant today:
+
+- the billed total differs from the expected total, or
+- the billed quantity differs from the ordered quantity or from the
+  received quantity. A short delivery counts: 5 ordered, 4 received and 5
+  billed is discrepant, because the bill does not match what arrived.
+
+The brief does not say whether the invoice's own unit price, or the
+agreement between its fields, also counts.
+
+**The case that exposes it.** INV-5 bills 5 units at $18.00 with a total
+of $90.00. A reviewer corrects only the total, to $100.00, and leaves the
+unit price at $18.00. The billed total now equals the expected $100.00,
+so the difference is $0.00 and the invoice shows as `reconciled`. But
+the invoice contradicts itself: 5 × $18.00 is $90.00, not $100.00, and
+the image says $90.00.
+
+**Current behaviour.** `rules.py` checks only the billed total and the
+billed quantity. It never reads the invoice's own unit price. The
+literal rule gives `reconciled`.
+
+**Why it matters.** Editing only the total can make any invoice
+`reconciled`. That removes the difference from the queue and from the
+recoverable total, although the supplier billed something else. The
+correction feature exists to fix misread extractions, not to make an
+invoice agree with its purchase order. The brief also asks the platform
+to handle "unreadable or invalid extraction" and to "Make unresolved
+evidence and failed processing visible."
+
+**Options considered.**
+
+- **A.** If billed quantity × billed unit price does not equal the billed
+  total, mark the invoice `unresolved`. The extracted values contradict
+  each other, so the evidence cannot be trusted. The note names the
+  contradiction and asks the reviewer to check the image.
+- **B.** Mark it `discrepant` with a $0.00 difference, and state the
+  unit-price difference in the note.
+- **C.** Keep the literal rule: the total and the quantity only.
+
+**Not adopted yet,** because the brief also says "Do not silently add
+domain rules." Option A is the leading candidate. It treats the case as
+invalid extraction, which the brief does cover, rather than as a new
+pricing rule.
+
+### 8. A purchase order with more than one receipt
+
+**Status: open.** Not decided; recorded here as the brief asks.
+
+**The gap.** The rules match an invoice by its reference:
+
+> Match using supplier ID and purchase-order ID. A missing or conflicting
+> reference remains unresolved.
+
+They do not say how to choose a receipt when a purchase order has more
+than one. The brief also says to "leave missing or ambiguous references
+unresolved rather than selecting the closest-looking record."
+
+**The data.** Each seeded purchase order has exactly one receipt (`PO-1`
+→ `RC-1`, `PO-2` → `RC-2`). No case in the batch has two.
+
+**Current behaviour.** `repository.get_receipt_for_po` reads the first
+row that SQLite returns for the purchase order. The query has no
+`ORDER BY`, so with two receipts the choice is not defined.
+
+**Not changed,** because the brief says "Do not silently add domain
+rules." Marking the invoice `unresolved`, or adding the received
+quantities together, would each be a new rule.
+
+### 9. A purchase order with no receipt
+
+**Status: open.** Not decided; recorded here as the brief asks.
+
+**The gap.** The rules say:
+
+> Compare billed quantity with both ordered and received quantity.
+
+They do not say what to do when no receipt exists for the matched
+purchase order. A missing receipt is not a missing reference: the
+reference is the supplier ID and purchase-order ID on the invoice.
+
+**The data.** Every seeded purchase order has a receipt.
+
+**Current behaviour.** `rules.py` compares the billed quantity with the
+ordered quantity only. If the amounts and the ordered quantity agree,
+the invoice is `reconciled`, and `matched_receipt_id` stays empty.
+
+**Not changed,** for the same reason as ambiguity 8.
+
+### 10. The SKU
+
+**Status: open.** Not decided; recorded here as the brief asks.
+
+**The gap.** The rules say only that "A purchase order records the agreed
+SKU, quantity, and unit price." They match on supplier ID and
+purchase-order ID, and give no rule that compares the SKU.
+
+**The data.** Every seeded purchase order, receipt and invoice uses SKU
+`CAB-1`.
+
+**Current behaviour.** The model extracts the SKU and the parser
+validates it, but the matcher and `rules.py` do not compare it with the
+purchase order or the receipt. An invoice with a different SKU gets the
+same result as one with the agreed SKU.
+
+**Not changed,** because a SKU check would be a new domain rule.
+
+### 11. Trends over time, such as a rising unit price
+
+**Status: not done, by choice.**
+
+**The gap.** The brief asks to "Explain one recurring issue or useful
+process improvement supported by the results". A trend, such as a unit
+price that rises from invoice to invoice, would be one kind of pattern.
+
+**Why the results cannot support one.**
+
+- `received_at` is not a real date. Ingest makes it from the order of
+  `seed.json`.
+- Both purchase orders agree the same unit price, $20.00, for one SKU
+  from one supplier.
+- The billed unit prices are $24.00, $18.00 and $20.00: one above and one
+  below the agreed price. That has no direction.
+- Core scope is six to eight invoices.
+
+**Chosen.** The page counts how often each issue type occurs (see "The
+suggested process improvements") and does not claim a trend. A trend
+claim here would be a finding the data does not show.
 
 ---
 
