@@ -325,6 +325,13 @@ def test_failed_invoice_detail_page_shows_its_reason(failed_client: TestClient) 
     assert "CacheMissError" in body
     assert "no cache entry" in body
 
+    # No values were read, so the page must not claim anything about the
+    # printed reference: it says matching did not run.
+    assert "extraction failed, so matching did not run" in body
+    assert "extraction failed, so nothing was calculated" in body
+    assert "No purchase-order reference was printed" not in body
+    assert "No matched purchase order" not in body
+
 
 # ---------------------------------------------------------------------------
 # GET /invoices/{id}/image
@@ -680,6 +687,32 @@ def test_unresolved_citation_explains_no_reference_and_no_guess(
 
     assert "No purchase-order reference was printed on this invoice" in no_match_citation
     assert "no nearest or similar record was guessed" in no_match_citation.lower()
+
+
+def test_duplicate_detail_page_names_the_earlier_copy_not_a_failed_match(
+    client: TestClient,
+) -> None:
+    """duplicate prints PO-1, which exists. The page must say the invoice
+    is a duplicate of clean (INV-1) and link to it, and must not claim
+    that no purchase order matched its printed reference."""
+    # _invoice_id_for would stop at the "duplicate" status filter link
+    # first, so read the row link for this file_id directly.
+    queue = client.get("/invoices").text
+    invoice_id = _re.search(r'href="/invoices/(\d+)">duplicate</a>', queue).group(1)
+    body = client.get(f"/invoices/{invoice_id}").text
+
+    assert "this invoice is a duplicate of" in body
+    link_end = body.index('">INV-1 (clean)</a>')
+    href = body[body.rindex('href="', 0, link_end) + len('href="') : link_end]
+    assert "<h1>clean</h1>" in client.get(href).text
+    assert "this invoice is a duplicate and is not payable" in body
+    assert "No matched purchase order" not in body
+    assert "No purchase order matched this invoice" not in body
+
+    titles = _tooltip_titles(body)
+    duplicate_citation = next(t for t in titles if "Duplicate of invoice" in t)
+    assert "supplier_id='S1' AND invoice_number='INV-1'" in duplicate_citation
+    assert "received first" in duplicate_citation
 
 
 def test_original_column_header_citation_names_the_image_and_model_id(

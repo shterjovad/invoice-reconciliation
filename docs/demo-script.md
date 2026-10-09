@@ -5,7 +5,7 @@ this open on a second screen and work down it. Each section names what to
 run, what to point at, what to say, and what to answer if asked.
 
 All commands below were run and confirmed working before this script was
-written, and checked again on 9 October 2026. 249 tests pass.
+written, and checked again on 9 October 2026. 250 tests pass.
 
 ---
 

@@ -30,6 +30,8 @@ __all__ = [
     "current_column_citation",
     "matched_po_citation",
     "matched_receipt_citation",
+    "duplicate_citation",
+    "extraction_failed_citation",
     "no_match_citation",
     "discrepancy_note_citation",
     "note_version_citation",
@@ -254,6 +256,49 @@ def note_version_citation(
         attempts=attempts,
         rejection_reasons=rejection_reasons,
     )
+
+
+def duplicate_citation(
+    *,
+    supplier_id: str,
+    invoice_number: str,
+    original_file_id: str,
+    original_received_at: str,
+    received_at: str,
+) -> Citation:
+    """Citation for the ``duplicate`` case: name the earlier copy.
+
+    A duplicate is decided before matching (``rules.reconcile`` step 3),
+    so it has no matched purchase order. Without this citation the page
+    would fall back to ``no_match_citation`` and claim that no purchase
+    order matched, which is not why the invoice has no amounts.
+    """
+    lines = [
+        f"Duplicate of invoice {original_file_id}: same supplier_id="
+        f"{supplier_id!r} AND invoice_number={invoice_number!r}.",
+        f"{original_file_id} was received first ({original_received_at}); "
+        f"this copy was received later ({received_at}).",
+        "The first copy stays payable. This copy is not payable and is "
+        "left out of every total, so it is not matched or calculated.",
+    ]
+    return {"lines": lines, "link": None}
+
+
+def extraction_failed_citation() -> Citation:
+    """Citation for the ``failed`` case: no fields, so no matching ran.
+
+    A failed extraction stores no field values, so ``po_id`` is absent.
+    Without this citation the page would fall back to
+    ``no_match_citation`` and claim that no reference was printed on the
+    invoice, which nobody knows: the invoice was never read.
+    """
+    lines = [
+        "Extraction failed, so no field values were read from this invoice.",
+        "With no values, matching did not run. This says nothing about "
+        "whether the invoice prints a purchase-order reference.",
+        "The reason is shown above. Rerun extraction for this invoice.",
+    ]
+    return {"lines": lines, "link": None}
 
 
 def no_match_citation(*, po_id_present: bool) -> Citation:

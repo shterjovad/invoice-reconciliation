@@ -32,7 +32,7 @@ from invoice_reconciliation.db.ingest import DEFAULT_SEED_PATH
 from invoice_reconciliation.extraction.cache import CacheMissError, ResponseCache
 from invoice_reconciliation.money import MoneyFormatError, cents_to_display
 from invoice_reconciliation.pipeline import recalculate_one
-from invoice_reconciliation.reconciliation import improvement
+from invoice_reconciliation.reconciliation import improvement, matcher
 from invoice_reconciliation.web import provenance
 
 __all__ = ["router"]
@@ -373,6 +373,32 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             )
             receipt = repository.get_receipt_for_po(conn, po_id=result_row["matched_po_id"])
 
+        # A duplicate is decided before matching, so it has no matched
+        # purchase order. Name the earlier copy instead, with the same
+        # lookup the pipeline used to classify it.
+        duplicate_of = None
+        if result_row is not None and result_row["status"] == "duplicate":
+            original = matcher.find_earlier_duplicate(
+                conn,
+                supplier_id=current_fields.get("supplier_id"),
+                invoice_number=current_fields.get("invoice_number"),
+                received_at=invoice_row["received_at"],
+                exclude_invoice_id=invoice_id,
+            )
+            if original is not None:
+                duplicate_of = {
+                    "invoice_id": original["invoice_id"],
+                    "file_id": original["file_id"],
+                    "invoice_number": current_fields.get("invoice_number"),
+                    "citation": provenance.duplicate_citation(
+                        supplier_id=current_fields.get("supplier_id"),
+                        invoice_number=current_fields.get("invoice_number"),
+                        original_file_id=original["file_id"],
+                        original_received_at=original["received_at"],
+                        received_at=invoice_row["received_at"],
+                    ),
+                }
+
         # Every correction per field, oldest first (list_corrections order),
         # for the full version chain in a corrected field's citation.
         corrections_by_field: dict[str, list[sqlite3.Row]] = {}
@@ -489,6 +515,8 @@ def invoice_detail(request: Request, invoice_id: int) -> HTMLResponse:
             "match": _match_view(
                 purchase_order, receipt, po_id_present=current_fields.get("po_id") is not None
             ),
+            "duplicate_of": duplicate_of,
+            "extraction_failed_citation": provenance.extraction_failed_citation(),
             "calculation": calculation,
             "note": note_view,
         },

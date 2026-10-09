@@ -122,6 +122,13 @@
                 </tr>
             </tbody>
         </table>
+        {% elif duplicate_of %}
+        <p class="no-match">Not matched: this invoice is a duplicate of
+            <a href="/invoices/{{ duplicate_of.invoice_id }}">{{ duplicate_of.invoice_number }} ({{ duplicate_of.file_id }})</a>.
+            {{ provenance_icon(duplicate_of.citation) }}</p>
+        {% elif invoice.extraction_failed %}
+        <p class="no-match">Not matched: extraction failed, so matching did not run.
+            {{ provenance_icon(extraction_failed_citation) }}</p>
         {% else %}
         <p class="no-match">No matched purchase order. {{ provenance_icon(match.no_match_citation) }}</p>
         {% endif %}
@@ -151,6 +158,10 @@
                 </tr>
             </tbody>
         </table>
+        {% elif duplicate_of %}
+        <p class="no-amount">No expected amount — this invoice is a duplicate and is not payable.</p>
+        {% elif invoice.extraction_failed %}
+        <p class="no-amount">No expected amount — extraction failed, so nothing was calculated.</p>
         {% else %}
         <p class="no-amount">No expected amount — this invoice has no matched purchase order.</p>
         {% endif %}

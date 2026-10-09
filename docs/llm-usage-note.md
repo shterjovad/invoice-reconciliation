@@ -100,8 +100,8 @@ the note drafting with its verification, the note version history, the
 provenance citations, the summary page's difference sources, the ranked
 process improvements drafted in one model call with their verifier
 (`reconciliation/improvement.py`), the `ModelCallError` handling that
-keeps one failed model call from stopping the batch, and the test suite. The suite has 249 tests: 142
-unit, 84 integration and 23 acceptance.
+keeps one failed model call from stopping the batch, and the test suite. The suite has 250 tests: 142
+unit, 85 integration and 23 acceptance.
 
 Domain rules came from `tasks/invoices/domain.md`, not from agent
 invention. Unclear points are recorded in the README's "Settled

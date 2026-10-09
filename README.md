@@ -168,7 +168,7 @@ Screenshots from a real run, against the six seeded invoices:
 uv run pytest -q
 ```
 
-249 tests pass: 142 unit, 84 integration and 23 acceptance.
+250 tests pass: 142 unit, 85 integration and 23 acceptance.
 
 ---
 
