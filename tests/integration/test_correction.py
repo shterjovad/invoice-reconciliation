@@ -271,6 +271,60 @@ def test_unknown_invoice_id_is_404(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# A correction redrafts a stale, unedited note so it describes the new
+# figures — the second, smaller fix: a note is commentary on the
+# reconciliation result, and a correction changes that result, so the old
+# text must not survive describing amounts that no longer match the page
+# around it. This is "force a redraft of this one invoice" — distinct from
+# "drafting is once per invoice", which governs the batch's own drafting.
+# ---------------------------------------------------------------------------
+
+
+def test_a_correction_redrafts_a_stale_unedited_note_with_the_new_figures(
+    client: TestClient, db_path: Path
+) -> None:
+    # @regression
+    invoice_id = _invoice_id_for(db_path, INVOICE_FILE_ID)
+
+    # View once so wrong-price's note is drafted against its original
+    # figures (billed $120.00 against agreed $100.00, difference $20.00).
+    first_body = client.get(f"/invoices/{invoice_id}").text
+    assert "20.00" in first_body
+
+    with connect(db_path) as conn:
+        note_before = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+    assert note_before is not None
+    assert bool(note_before["is_reviewer_edited"]) is False
+    assert "120.00" in note_before["current_text"]
+
+    # A correction that changes the figures but keeps the invoice
+    # discrepant, with a different, larger difference (13000 - 10000 =
+    # 3000, not the fixture's 2000).
+    response = client.post(
+        f"/invoices/{invoice_id}/fields/total_cents",
+        data={"value": "13000"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    result = _result(db_path, invoice_id)
+    assert result["status"] == "discrepant"
+    assert result["difference_cents"] == 3000
+
+    with connect(db_path) as conn:
+        note_after = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+
+    # The note was redrafted to describe the new figures, not left stale.
+    assert "130.00" in note_after["current_text"]
+    assert note_after["current_text"] != note_before["current_text"]
+    assert bool(note_after["is_reviewer_edited"]) is False
+
+    detail_body = client.get(f"/invoices/{invoice_id}").text
+    assert "130.00" in detail_body
+    assert "30.00" in detail_body
+
+
+# ---------------------------------------------------------------------------
 # A reviewer's note edit survives a correction that recalculates the
 # invoice's figures — "a human edit is the most trusted text. Never
 # overwrite it" (technical-considerations.md).

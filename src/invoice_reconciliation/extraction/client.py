@@ -21,9 +21,9 @@ credentials to be present.
 
 Structured output is requested via a single forced tool call (``tool_choice``
 pinned to the one extraction tool), whose ``input_schema`` is the seven-field
-schema in ``schema.py``. Classic Bedrock's ``invoke_model`` has no
-``output_config`` structured-output parameter, so the forced single tool
-call is still how the response shape is constrained.
+schema in ``prompts.py`` (``EXTRACTION_SCHEMA``). Classic Bedrock's
+``invoke_model`` has no ``output_config`` structured-output parameter, so the
+forced single tool call is still how the response shape is constrained.
 """
 
 from __future__ import annotations
@@ -32,8 +32,7 @@ import base64
 import json
 
 from invoice_reconciliation.config import ModelConfig
-from invoice_reconciliation.extraction.prompt import EXTRACTION_PROMPT
-from invoice_reconciliation.extraction.schema import EXTRACTION_SCHEMA
+from invoice_reconciliation.prompts import EXTRACTION_PROMPT, EXTRACTION_SCHEMA
 
 __all__ = ["build_client", "extract_invoice_fields"]
 

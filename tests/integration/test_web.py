@@ -570,8 +570,23 @@ import re as _re
 
 
 def _tooltip_titles(body: str) -> list[str]:
-    """Return every provenance tooltip's text, decoded, in document order."""
-    return [_html.unescape(t) for t in _re.findall(r'title="([^"]*)"', body, flags=_re.S)]
+    """Return every provenance tooltip's text, decoded, in document order.
+
+    Reads the CSS popup's list items, one line per item, joined by newlines.
+    The icon no longer carries a ``title`` attribute: a native title tooltip
+    appears only after the browser's fixed delay of about a second, so it
+    showed up late beside the instant CSS popup as a second copy.
+    """
+    popups = _re.findall(
+        r'<span class="prov-popup"[^>]*>\s*<ul>(.*?)</ul>', body, flags=_re.S
+    )
+    return [
+        "\n".join(
+            _html.unescape(li.strip())
+            for li in _re.findall(r"<li>(.*?)</li>", popup, flags=_re.S)
+        )
+        for popup in popups
+    ]
 
 
 def _all_hrefs(body: str) -> list[str]:
@@ -764,11 +779,23 @@ def test_model_drafted_note_shows_the_model_provenance_on_the_detail_page(
 ) -> None:
     """A verified model draft, once stored, shows which model drafted it —
     not just that a model was used. Mocks the one Bedrock call this note
-    would make; no live call happens in this test."""
+    would make; no live call happens in this test.
+
+    ``run_batch`` (in the ``db_path`` fixture above) now drafts a
+    calculated note for every invoice that is already discrepant when the
+    batch runs — ``wrong-price`` included — so that invoice no longer has
+    an undrafted note to exercise the *lazy* model path against (drafting
+    is once per invoice; see ``pipeline.ensure_discrepancy_note``). This
+    test instead corrects ``clean`` (reconciled, INV-1/PO-1) so that it
+    *becomes* discrepant through a web correction — the one scenario the
+    lazy fallback still serves, since the batch never saw this invoice as
+    discrepant and so never drafted a note for it. $100.00 agreed vs.
+    $130.00 now billed, a $30.00 difference.
+    """
     good_draft = (
-        "Invoice INV-2 (purchase order PO-2) bills $120.00 against an "
-        "agreed $100.00 for 5 units at $20.00 each. The billed amount is "
-        "$20.00 above the agreed amount."
+        "Invoice INV-1 (purchase order PO-1) bills $130.00 against an "
+        "agreed $100.00. The billed amount is $30.00 above the agreed "
+        "amount."
     )
     fake_client = MagicMock()
     fake_client.invoke_model.return_value = {"body": _fake_note_body(good_draft)}
@@ -776,10 +803,16 @@ def test_model_drafted_note_shows_the_model_provenance_on_the_detail_page(
     app = create_app(db_path=db_path, draft_notes_with_model=True)
     model_client = TestClient(app)
 
+    invoice_id = _invoice_id_for(model_client, "clean")
     with patch(
         "invoice_reconciliation.extraction.client.build_client", return_value=fake_client
     ):
-        invoice_id = _invoice_id_for(model_client, "wrong-price")
+        correction_response = model_client.post(
+            f"/invoices/{invoice_id}/fields/total_cents",
+            data={"value": "13000"},
+            follow_redirects=False,
+        )
+        assert correction_response.status_code == 303
         body = model_client.get(f"/invoices/{invoice_id}").text
 
     assert "model-drafted" in body.lower()
@@ -794,3 +827,13 @@ def test_model_drafted_note_shows_the_model_provenance_on_the_detail_page(
     ):
         model_client.get(f"/invoices/{invoice_id}")
     fake_client.invoke_model.assert_called_once()
+
+
+def test_provenance_icon_has_no_native_title_tooltip(client) -> None:
+    """A ``title`` attribute adds a native tooltip that shows only after the
+    browser's fixed delay of about a second. It appeared late beside the
+    instant CSS popup as a duplicate, so the icon must not carry one."""
+    body = client.get("/invoices/2").text
+    icons = _re.findall(r'<span class="prov"[^>]*>', body)
+    assert icons, "expected at least one provenance icon"
+    assert all("title=" not in tag for tag in icons)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -71,6 +71,18 @@ def create_app(
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    @app.middleware("http")
+    async def _revalidate_static(request: Request, call_next):
+        # Without Cache-Control the browser guesses a cache lifetime and can
+        # keep serving an old style.css after it changes. A stale sheet once
+        # showed the provenance popup unstyled and permanently open. With
+        # no-cache the browser still caches, but asks first; the ETag makes
+        # that check a 304 with no body when nothing changed.
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
     app.include_router(router)
 
     return app

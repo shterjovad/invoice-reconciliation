@@ -147,6 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Force live calls and overwrite the saved responses.",
     )
     parser.add_argument(
+        "--no-model-notes",
+        action="store_true",
+        help=(
+            "Do not call the model to draft discrepancy notes; use the "
+            "calculated note instead. Drafting is on by default, so the "
+            "notes are already written by the time a reviewer opens the "
+            "web view. Without credentials the batch falls back on its "
+            "own, so this flag is only needed to skip the calls outright."
+        ),
+    )
+    parser.add_argument(
         "--seed-check",
         action="store_true",
         help="After persisting, compare results with expected-seed-results.json.",
@@ -280,7 +291,9 @@ def main(argv: list[str] | None = None) -> int:
 
     with connect(args.db_path) as conn:
         try:
-            outcomes = run_batch(conn)
+            outcomes = run_batch(
+                conn, draft_notes_with_model=not args.no_model_notes
+            )
         except Exception as exc:  # noqa: BLE001 - CLI boundary: report, don't crash
             logger.exception("Batch processing raised an unhandled exception")
             print(

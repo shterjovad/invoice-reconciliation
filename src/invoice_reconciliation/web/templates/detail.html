@@ -8,7 +8,7 @@
 <body>
     {% macro provenance_icon(citation) %}
     {%- if citation and citation.lines -%}
-    <span class="prov" tabindex="0" title="{{ citation.lines | join('\n') }}">
+    <span class="prov" tabindex="0">
         <span class="prov-icon" aria-hidden="true">ⓘ</span>
         <span class="sr-only">Where this value came from</span>
         <span class="prov-popup" role="tooltip">

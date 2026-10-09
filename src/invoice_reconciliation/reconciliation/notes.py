@@ -41,6 +41,7 @@ import re
 from dataclasses import dataclass, field
 
 from invoice_reconciliation.money import cents_to_display
+from invoice_reconciliation.prompts import NOTE_SCHEMA, NOTE_TOOL_NAME, build_note_prompt
 
 __all__ = [
     "draft_note",
@@ -72,21 +73,11 @@ _ACCUSATORY_WORDS: tuple[str, ...] = (
 _MAX_ATTEMPTS = 3
 _MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 _ANTHROPIC_VERSION = "bedrock-2023-05-31"
-_TOOL_NAME = "record_discrepancy_note"
-_NOTE_SCHEMA: dict = {
-    "type": "object",
-    "properties": {
-        "note": {
-            "type": "string",
-            "description": (
-                "A short, factual paragraph describing the discrepancy, "
-                "using only the figures and identifiers supplied."
-            ),
-        },
-    },
-    "required": ["note"],
-    "additionalProperties": False,
-}
+# The prompt text, the tool name and its response schema all live in
+# prompts.py now, alongside every other prompt this project sends to a
+# model — see build_note_prompt's docstring there for the full account of
+# what this prompt must say and must never say.
+_TOOL_NAME = NOTE_TOOL_NAME
 
 # Matches a dollar figure such as "$20.00" or "$120" — used only to find
 # candidate amounts to check against the computed set in verify_note, not
@@ -288,64 +279,27 @@ def _build_tool_call_body(
 ) -> dict:
     """Build the Bedrock ``invoke_model`` request body for one drafting attempt.
 
-    The model phrases; it never supplies a figure. The prompt states every
-    figure and identifier as already-verified source material and asks
-    only for a factual paragraph using them — the same figures
-    ``draft_note`` would render, so a model that follows instructions
-    produces text ``verify_note`` accepts on the first attempt.
-    ``rejection_reason`` (``None`` on the first attempt) is appended as an
-    explicit instruction on retry, per the owner's decision that a blind
-    retry at temperature 0 tends to reproduce the same rejected output.
+    The prompt text itself is built by ``prompts.build_note_prompt`` — see
+    that function's docstring for what it must say, what it must never
+    say, and the unit-price omission learned the hard way. This function's
+    job is just wrapping that text into the Bedrock request shape (the
+    forced tool call, the model id, the temperature).
     """
-    expected_display = cents_to_display(expected_cents)
-    billed_display = cents_to_display(billed_cents)
-    unit_display = cents_to_display(unit_cents)
-    difference_display = cents_to_display(abs(difference_cents))
-    direction = (
-        "above" if difference_cents > 0 else "below" if difference_cents < 0 else None
+    prompt = build_note_prompt(
+        invoice_number=invoice_number,
+        po_id=po_id,
+        quantity=quantity,
+        unit_cents=unit_cents,
+        expected_cents=expected_cents,
+        billed_cents=billed_cents,
+        difference_cents=difference_cents,
+        rejection_reason=rejection_reason,
     )
-
-    prompt = (
-        "Write one short, factual paragraph describing a discrepant invoice, "
-        "for a reviewer who will decide what to do about it. Use only the "
-        "figures and identifiers below — do not compute, round, or restate "
-        "them differently, and do not add any figure not listed here.\n\n"
-        f"- Invoice number: {invoice_number}\n"
-        f"- Matched purchase order: {po_id}\n"
-        f"- Agreed quantity: {quantity} units at ${unit_display} each\n"
-        f"- Agreed (expected) total: ${expected_display}\n"
-        f"- Billed total: ${billed_display}\n"
-        + (
-            f"- The billed amount is ${difference_display} {direction} the "
-            "agreed amount.\n"
-            if direction is not None
-            else "- The billed amount matches the agreed amount exactly "
-            "(no difference).\n"
-        )
-        + "\nRules:\n"
-        "- State what was billed against what was agreed, and the "
-        "difference (or that the amounts match).\n"
-        "- Name both the invoice number and the purchase-order id, exactly "
-        "as given above.\n"
-        "- Never state or imply a cause (do not use words like error, "
-        "mistake, overcharge, fraud) and never assign intent (do not use "
-        "words like wrongly, deliberately, incorrectly, negligent). State "
-        "only that the figures differ, not why.\n"
-        "- Use only the dollar figures listed above, written exactly as "
-        "given (e.g. if the agreed total is $100.00, write \"$100.00\", "
-        "never \"$100\" or \"about $100\").\n"
-    )
-    if rejection_reason is not None:
-        prompt += (
-            "\nYour previous attempt was rejected because it "
-            f"{rejection_reason}. Write a new paragraph that avoids this "
-            "problem, following all the rules above.\n"
-        )
 
     tool = {
         "name": _TOOL_NAME,
         "description": "Record the drafted discrepancy note.",
-        "input_schema": _NOTE_SCHEMA,
+        "input_schema": NOTE_SCHEMA,
     }
 
     return {

@@ -25,13 +25,13 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
+from invoice_reconciliation import pipeline
 from invoice_reconciliation.db import repository
 from invoice_reconciliation.db.connection import connect
 from invoice_reconciliation.db.ingest import DEFAULT_SEED_PATH
 from invoice_reconciliation.extraction.cache import CacheMissError, ResponseCache
 from invoice_reconciliation.money import MoneyFormatError, cents_to_display
 from invoice_reconciliation.pipeline import recalculate_one
-from invoice_reconciliation.reconciliation.notes import draft_discrepancy_note
 from invoice_reconciliation.web import provenance
 
 __all__ = ["router"]
@@ -487,101 +487,37 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_discrepancy_note(conn, invoice_id: int, *, use_model: bool = False) -> None:
-    """Draft (or redraft) the discrepancy note for ``invoice_id``, if it is
-    currently ``discrepant``.
+def _ensure_discrepancy_note(
+    conn, invoice_id: int, *, use_model: bool = False, force: bool = False
+) -> None:
+    """Draft the discrepancy note for ``invoice_id``, if it needs one.
 
-    This is not a second reconciliation path: it reads the figures
-    ``pipeline.recalculate_one`` already computed and persisted, and
-    passes them to ``notes.draft_discrepancy_note`` — no status decision
-    and no money arithmetic happens here. Called from both the detail
-    route (so an invoice reconciled only by the headless batch command,
-    never through a web correction, still has a note to show) and the
-    correction route (so a correction that changes the figures redrafts
-    the note rather than leaving a stale one).
+    A thin wrapper over ``pipeline.ensure_discrepancy_note`` — the one
+    note-drafting decision shared with ``pipeline.run_batch`` (which now
+    drafts a note for every invoice that becomes discrepant during the
+    batch; see that module). This function stays as the lazy fallback for
+    the two cases the batch cannot have already covered:
 
-    **Drafting is lazy and persistent.** The detail route only calls this
-    when no note row exists yet for the invoice — once drafted, every
-    later view reads the stored row back rather than redrafting, so a
-    page refresh never bills a second model call. ``use_model`` controls
-    whether that one drafting attempt may call the model at all; it
-    defaults to ``False`` (the calculated path) so that calling this
-    function never requires AWS credentials or makes a network call
-    unless a caller opts in explicitly — the correction route and the
-    detail route both read ``get_draft_notes_with_model`` and pass its
-    value through, rather than this function reaching for application
-    state itself.
+    - the detail route, for an invoice that became discrepant through a
+      web correction after the last batch run (the batch never saw it as
+      discrepant, so never drafted a note for it) — called with
+      ``force=False``, the default, so an invoice the batch (or an
+      earlier view) already drafted a note for is read back, not
+      redrafted;
+    - the correction route itself, immediately after a correction changes
+      the figures — called with ``force=True``, so the one invoice just
+      corrected gets a fresh note describing its new figures rather than
+      the detail page showing a note that still describes the pre-
+      correction amounts. Called synchronously, inside the same POST (see
+      that route's docstring for why a correction accepts this short wait
+      rather than leaving a stale note or deferring to the next batch).
 
-    **A reviewer's edit is never overwritten.** If the existing note row
-    has ``is_reviewer_edited = 1``, this function does not redraft at
-    all — the figures may have moved (a correction can call this after
-    recomputing), but the reviewer's own words stay exactly as written.
-    Instead it marks the row ``edit_superseded`` so the reviewer can see
-    the edit may now describe stale figures and decide whether to redraft
-    (the UI surfaces this flag; see ``detail.html``). This is the one
-    branch where this function writes to an *existing* row rather than
-    replacing it outright.
-
-    A non-``discrepant`` invoice (reconciled, duplicate, unresolved,
-    failed) is left with no note row at all — nothing to draft, since
-    there is no difference to describe. An invoice that *was* discrepant
-    and a correction resolved it (no longer discrepant) is not cleaned
-    up here: that is a deliberate no-op, left as a recorded gap rather
-    than silently deleting history, since no route in this slice reads a
-    stale note for a non-discrepant invoice (the detail and summary
-    templates only ever ask for a note when ``status == "discrepant"``).
+    A reviewer's edit is still never overwritten, force or not — enforced
+    by ``pipeline.ensure_discrepancy_note`` itself, not re-implemented
+    here. ``use_model`` and ``force`` are passed straight through
+    unchanged.
     """
-    result_row = repository.get_reconciliation_result(conn, invoice_id=invoice_id)
-    if result_row is None or result_row["status"] != "discrepant":
-        return
-
-    existing_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
-    if existing_note is not None and bool(existing_note["is_reviewer_edited"]):
-        repository.mark_discrepancy_note_edit_superseded(conn, invoice_id=invoice_id)
-        return
-
-    current_fields = repository.get_current_fields(conn, invoice_id=invoice_id)
-    invoice_number = current_fields.get("invoice_number") or "–"
-    po_id = result_row["matched_po_id"] or "–"
-
-    purchase_order = None
-    supplier_id = current_fields.get("supplier_id")
-    if supplier_id is not None and result_row["matched_po_id"] is not None:
-        purchase_order = repository.get_purchase_order(
-            conn, supplier_id=supplier_id, po_id=result_row["matched_po_id"]
-        )
-
-    # The matched purchase order is looked up above rather than parsed
-    # from current_fields' own quantity/unit_cents text, for the same
-    # reason rules.reconcile computes expected_cents from the purchase
-    # order: the agreed quantity and unit price are the PO's, never the
-    # invoice's own (possibly different, possibly corrected-but-still-
-    # discrepant) claimed values.
-    quantity = int(purchase_order["quantity"]) if purchase_order is not None else 0
-    unit_cents = int(purchase_order["unit_cents"]) if purchase_order is not None else 0
-
-    drafted = draft_discrepancy_note(
-        invoice_number=invoice_number,
-        po_id=po_id,
-        quantity=quantity,
-        unit_cents=unit_cents,
-        expected_cents=result_row["expected_cents"],
-        billed_cents=result_row["billed_cents"],
-        difference_cents=result_row["difference_cents"],
-        use_model=use_model,
-    )
-    repository.upsert_discrepancy_note(
-        conn,
-        invoice_id=invoice_id,
-        drafted_text=drafted.text,
-        drafted_by=drafted.drafted_by,
-        model_id=drafted.model_id,
-        drafted_at=_now_iso() if drafted.drafted_by == "model" else None,
-        attempts=drafted.attempts,
-        rejection_reasons=(
-            json.dumps(drafted.rejection_reasons) if drafted.rejection_reasons else None
-        ),
-    )
+    pipeline.ensure_discrepancy_note(conn, invoice_id, use_model=use_model, force=force)
 
 
 def _validate_field_value(field_name: str, raw_value: str) -> str:
@@ -713,11 +649,17 @@ def correct_field(
         # Redraft the note from the new figures — unless a reviewer already
         # edited it, in which case _ensure_discrepancy_note leaves the edit
         # untouched and marks it edit_superseded instead (see its
-        # docstring). This is the one caller that reaches this function
-        # even when a note row already exists (the detail route's lazy
-        # path only calls it when no row exists yet).
+        # docstring). force=True: this invoice's own note, if any, was
+        # drafted against the pre-correction figures (by an earlier batch
+        # run or an earlier view), so it must be redrafted here rather than
+        # left describing stale amounts — the one case "drafting is once
+        # per invoice" does not apply to. A short wait here (one verified
+        # model call, at most) is accepted deliberately: a correction is
+        # an explicit, synchronous user action, unlike the batch's own
+        # drafting, so the reviewer is already waiting on this request
+        # regardless.
         _ensure_discrepancy_note(
-            conn, invoice_id, use_model=get_draft_notes_with_model(request)
+            conn, invoice_id, use_model=get_draft_notes_with_model(request), force=True
         )
 
     return RedirectResponse(
