@@ -9,6 +9,17 @@ body {
 
 h1 {
     font-size: 1.4rem;
+    margin-bottom: 0.2rem;
+}
+
+/* Names the screen under the platform name, so the heading can say what
+   the product is without losing what the page shows. */
+.subtitle {
+    margin-top: 0;
+    margin-bottom: 1.2rem;
+    max-width: 60ch;
+    color: #555;
+    font-size: 0.95rem;
 }
 
 table {
