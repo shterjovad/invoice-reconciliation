@@ -152,7 +152,10 @@ Open `http://127.0.0.1:8000/invoices`. Three screens:
   Saving a correction recalculates the result in place and redirects back
   to this page.
 - **`/summary`** — counts per status, the recoverable total, each
-  discrepant invoice's difference, and one suggested process improvement.
+  discrepant invoice's difference and its source (unit price or
+  quantity), the differences grouped by source, and up to two suggested
+  process improvements for the most frequent issue types (see "The
+  suggested process improvements").
 
 Screenshots from a real run, against the six seeded invoices:
 
@@ -166,7 +169,7 @@ Screenshots from a real run, against the six seeded invoices:
 uv run pytest -q
 ```
 
-159 tests pass.
+249 tests pass: 142 unit, 84 integration and 23 acceptance.
 
 ---
 

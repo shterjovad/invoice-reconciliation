@@ -131,7 +131,16 @@ the decision._
   responses go into the repository, so replay works from a clean copy. Replay must run the real
   parsing and reconciliation path. It bypasses only the network call.
 - **Failure Handling:** a failed call, or an invalid response, must not stop the batch. The product
-  marks that invoice with a visible failure status and gives it no amount.
+  marks that invoice with a visible failure status and gives it no amount. **As built:**
+  `extraction/client.py` turns every failure of the call itself (no credentials, throttling, an
+  access error, a timeout, a response that cannot be read) into one `ModelCallError`, and
+  `db/ingest.py` catches it for each invoice. With no credentials at all, every invoice is `failed`
+  with the reason, and the CLI exits with code 2.
+- **Two further model jobs, added after this document was first written:** the model drafts the
+  discrepancy note for each discrepant invoice, and the process improvements on the summary page
+  (one call for all ranked issues). In both, the model only phrases facts that code computed. A
+  verifier checks each text, and a calculated text replaces it when the model is unavailable or
+  every attempt is rejected.
 - **No other external services.** No sign-in provider, no payments, no analytics.
 
 ---
@@ -162,7 +171,7 @@ the decision._
 
 ## 6. Secrets and Configuration
 
-- **`.env.example` (repository root) holds only variable names:** `AWS_REGION` and `BEDROCK_MODEL_ID`. Both are optional overrides of the in-code defaults. No API-key variable exists; AWS credentials resolve through the standard credential chain (SigV4).
+- **`.env.example` (repository root) holds only variable names:** `AWS_REGION` and `BEDROCK_MODEL_ID`, optional overrides of the in-code defaults, and `AWS_PROFILE`, which the AWS credential chain reads when the session is under a named profile. No API-key variable exists; AWS credentials resolve through the standard credential chain (SigV4).
 - **`MODEL_API_KEY` is gone.** The starter pack's `ai-workflow/.env.example` carried that name; it
   was removed rather than shipped, per the pack's own "Remove this example if no variables were
   used." Bedrock authenticates with SigV4 from the credential

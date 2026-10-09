@@ -5,7 +5,7 @@ this open on a second screen and work down it. Each section names what to
 run, what to point at, what to say, and what to answer if asked.
 
 All commands below were run and confirmed working before this script was
-written. Tree clean at commit `a1169c1`. 159 tests pass.
+written, and checked again on 9 October 2026. 249 tests pass.
 
 ---
 
@@ -94,7 +94,8 @@ the default `invoice_reconciliation.sqlite` in the repository root.
 | B3 | Click the "discrepant" filter link | The table narrowing to three rows | "Filtering by status is a plain link, not a client-side script — this whole product is server-rendered pages, no JavaScript framework." | *"Why no frontend framework?"* → "There's no interactivity this product needs that a server-rendered form and a link can't do. Adding one would be a dependency with no job to do." |
 | B4 | Click into the wrong-price invoice (status `discrepant`, difference $20.00) | The invoice image on the left, the matched purchase order and receipt, and the seven extracted fields with their correction forms | "Here's the evidence: the invoice image, the purchase order and receipt it matched against, and the field the model extracted — in this case, `total_cents` was read as 12000, a hundred and twenty dollars, one hundred cents too high against the agreed price." | *"How do you know the extraction is reading the fields correctly?"* → "You can see the image right next to the read value and check it yourself. That's the point of putting them side by side." |
 | B5 | In the `total_cents` correction form, enter `10000` and submit | The page reloading, the status badge changing from `discrepant` to `reconciled`, and the `total_cents` row showing `12000` under "original" and `10000` under "current" | "I've corrected the billed amount to match what the purchase order agreed. The status just moved from discrepant to reconciled — nothing else changed, the same reconciliation function the batch command used just ran again on this one invoice." | *"Why does the original value still say 12000?"* → "That's what extraction actually produced. A correction records a new current value; it never overwrites the history of what the model first read." |
-| B6 | Open `http://127.0.0.1:8000/summary` | The "Recoverable total" figure | "The recoverable total just moved from eighty dollars to sixty, because this invoice no longer owes anything." | *"Why eighty and not some other number?"* → "It's the sum of the three overcharges, twenty plus sixty — the quantity overbill is also an overcharge. The undercharge is excluded on purpose; see edge case C3." |
+| B6 | Open `http://127.0.0.1:8000/summary` | The "Recoverable total" figure, and the "Source" column of the discrepant invoices | "The recoverable total just moved from eighty dollars to sixty, because this invoice no longer owes anything. Each remaining difference says where it comes from: quantity-overbill on quantity, undercharge on unit price." | *"Why eighty and not some other number?"* → "It's the sum of the two overcharges, twenty plus sixty — the quantity overbill is also an overcharge. The undercharge is excluded on purpose; see edge case C3." |
+| B6a **[cut if short]** | Scroll to "Suggested improvements" | The line "No issue recurs yet", and the two "Single case" entries | "Before the correction, the unit price differed on two invoices, so the page showed it as a recurring issue. After the correction, every issue type occurs once, and the page says so instead of claiming a pattern. Code counts the issue types; one model call only phrases them, and code fixes the conclusion — for example, recheck unit prices against the purchase order before shipping." | *"Is the model deciding what the problem is?"* → "No. Code ranks the issue types by count from the saved results. The model writes one plain sentence per issue, and a verifier rejects blame words, dollar figures and wrong invoice names. Hover the ⓘ icon to see whether the model or the prepared fallback wrote it." |
 | B7 **[cut if short]** | Stop the server (`Ctrl-C` or kill by PID), then start it again with the same command | The queue and the detail page loading again with no errors | "I've just killed the whole server process and started a brand-new one. No memory carried over — only the database file did." | — |
 | B8 **[cut if short]** | Open `/invoices/2` again in the new process | The status still `reconciled`, `total_cents` still showing `10000` as current | "The correction is still there. It's not a server-side session value — it was written to the database the moment I submitted it." | *"What if two reviewers correct the same invoice at once?"* → "Each write is one transaction — a correction row and a field update together, committed or rolled back as one unit. There's no login system in this product, so every correction is attributed to a fixed placeholder reviewer rather than a real identity; that's a recorded limitation, not an oversight." |
 
@@ -107,6 +108,11 @@ the default `invoice_reconciliation.sqlite` in the repository root.
   Other`.
 - After correction: status `reconciled`; `total_cents` original `12000`,
   current `10000`; recoverable total `$60.00`.
+- Summary before the correction: "Unit price differs · Recurring, 2
+  invoices" (wrong-price, undercharge). After it: "No issue recurs yet",
+  then "Unit price differs · Single case" (undercharge) and "Quantity
+  differs · Single case" (quantity-overbill). The Source column shows
+  quantity-overbill `Quantity` and undercharge `Unit price`.
 - Server stopped by PID, a brand-new server process started against the
   same database file, invoice 2 read back as `reconciled` with
   `total_cents` current still `10000` — no server state carried over, only
@@ -122,6 +128,8 @@ the default `invoice_reconciliation.sqlite` in the repository root.
 | C2 | Open `/invoices/3` (`duplicate`, `count_as_payable=False`) | The status badge `duplicate`, and the `/summary` page showing it counted but not in the recoverable total | "Two invoices in this batch share the same supplier and invoice number. The first one received counts as payable; this one is flagged a duplicate and excluded." | *"How do you decide which copy is the real one?"* → "Whichever was received first, by timestamp. That's the only ordering rule available once two invoices agree on supplier and invoice number." |
 | C3 | Open `/invoices/6` (`undercharge`, difference **−$10.00**) and then `/summary` | The negative difference on the detail page; the recoverable total on the summary page unchanged by this invoice | "This invoice billed ten dollars less than it should have. It's flagged discrepant — the difference is real and worth a reviewer's attention — but it does not reduce the eighty-dollar recoverable total. An underbill must never offset an overcharge; they're two separate problems, not a number to net against each other." | *"Isn't that leaving real savings on the table?"* → "No — the ten dollars isn't lost, it's a separate fact: this supplier undercharged once. Netting it against a different invoice's overcharge would hide both problems behind one smaller number." |
 | C4 **[cut if short]** | Run:<br>`uv run pytest tests/integration/test_failure_isolation.py -v` | The five `PASSED` lines, in particular `test_a_corrupt_cache_entry_leaves_every_other_invoice_processed` | "This test corrupts one invoice's saved response — malformed JSON — and proves the other five still process correctly, and the corrupted one comes back `failed` with a readable reason instead of crashing the batch. I'm running it as a test here rather than live in the CLI, because the batch command doesn't expose a flag to point at a scratch cache — that's a real gap, not a dodge." | *"Why not show it in the CLI directly?"* → "The CLI's cache location isn't a command-line option today. Showing it as a passing test is the honest way to demonstrate the behavior without editing a tracked file on stage." |
+
+| C5 **[cut if short]** | Run, with every AWS credential blocked and a scratch database:<br>`AWS_PROFILE=nope AWS_EC2_METADATA_DISABLED=true AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null uv run python -m invoice_reconciliation.cli --extract --reset-db --no-model-notes --db-path /tmp/no-credentials.sqlite`, then `echo $?` | Six `FAILED — ModelCallError: could not build the Bedrock client: ProfileNotFound` lines, `status=failed` for all six, and exit code `2` | "This time I asked for live extraction with no usable AWS profile. No model call can work, but the batch does not stop: each invoice is saved as failed with the reason, and the exit code says a processing problem, not a wrong answer." | *"What about a throttle on just one call?"* → "Same path. The client turns any Bedrock or network error into one error type, and ingest catches it per invoice. A test throttles only one invoice and checks the other five still extract." |
 
 **Confirmed in this run:**
 
@@ -205,7 +213,7 @@ correct.
 ## Cross-reference
 
 - Full flag list and exit codes: `README.md`, "All CLI flags".
-- Settled ambiguities (six, numbered): `README.md`, "Settled ambiguities".
+- Settled ambiguities (eleven, numbered): `README.md`, "Settled ambiguities".
 - Six defects found during the build: `README.md`, "Six defects found
   during the build" — the Bedrock-Mantle one (`AnthropicBedrockMantle`
   returning 404 against a service with its own, separate entitlement) is

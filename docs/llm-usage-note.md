@@ -22,7 +22,7 @@ Their definitions are in `.claude/agents/`.
 
 **Application (runtime).** The app calls
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0` on AWS Bedrock, through the
-`bedrock-runtime` service in `us-east-1`, at temperature 0.0. It has two
+`bedrock-runtime` service in `us-east-1`, at temperature 0.0. It has three
 jobs:
 
 1. **Extraction.** It reads each invoice image and returns the seven
@@ -30,8 +30,14 @@ jobs:
 2. **Discrepancy notes.** It drafts the note for each discrepant invoice.
    The brief asks for this: "Use the model to draft a short discrepancy
    note from verified findings and source references."
+3. **Process improvements.** On the summary page, code counts every issue
+   type in the saved results and ranks them. One model call writes a
+   plain sentence for each of the top two. Code chooses each conclusion,
+   and the model must copy it word for word. The brief asks to "Explain
+   one recurring issue or useful process improvement supported by the
+   results".
 
-The model never supplies a figure. Every amount comes from the rules
+The model never supplies a figure, and never decides a status. Every amount comes from the rules
 engine, in integer cents. Matching, arithmetic and classification run in
 plain Python with no model involved.
 
@@ -54,6 +60,12 @@ reviewer can distinguish them from new model calls."
   `drafted_by` (`model` or `calculated`), the model ID, the number of
   attempts, and the reason each rejected attempt failed. The detail page
   shows this for every version.
+- **Improvements** are live calls when the summary page loads, kept in
+  memory until the issues change. An ⓘ tooltip on each one states
+  whether the model or the prepared fallback wrote it.
+- **Simulated failures** exist only in tests. They use a fake Bedrock
+  client that raises a throttling error or a missing-credential error, and
+  each test name says which failure it simulates.
 
 Measured on the same batch: with AWS unreachable it took 1 s and gave
 three `calculated` notes. With AWS reachable it took 12 s and gave three
@@ -65,13 +77,16 @@ Agents generated most of the source tree: the FastAPI routes and
 templates, the SQLite schema and repository layer, the reconciliation
 rules engine, the money conversion module, the Bedrock client and cache,
 the note drafting with its verification, the note version history, the
-provenance citations, and the test suite. The suite has 225 tests: 122
-unit, 80 integration and 23 acceptance.
+provenance citations, and the test suite. The suite has 249 tests: 142
+unit, 84 integration and 23 acceptance.
 
 Domain rules came from `tasks/invoices/domain.md`, not from agent
 invention. Unclear points are recorded in the README's "Settled
-ambiguities" section. One of them is still open: whether a discrepancy is
-only about the billed total.
+ambiguities" section. Entries 7 to 10 are still open: whether a
+discrepancy is only about the billed total, a purchase order with more
+than one receipt, a purchase order with no receipt, and the SKU. The
+brief says "Do not silently add domain rules", so the code does not
+decide them.
 
 ## One representative instruction
 
@@ -202,3 +217,42 @@ between the invoice's own fields, should count. It also says "Do not
 silently add domain rules." So the code was not changed. The question is
 recorded as open in the README's "Settled ambiguities" section (entry 7),
 with the options considered.
+
+### 7. An improvement that the page's own data contradicted
+
+The summary page first showed one fixed sentence, written from the seed
+batch: wrong-price and undercharge both bill a different unit price. The
+owner corrected undercharge so that it was no longer discrepant. The
+table above the sentence then listed only wrong-price, but the sentence
+still named undercharge. The brief asks for an improvement "supported by
+the results", and a fixed sentence cannot meet that. The improvement is
+now built from the saved results on every page load.
+
+### 8. A sentence I invented, removed after the owner asked for its source
+
+To guard against blame, I added a fixed sentence under each improvement:
+"The reviewer confirms each one with the supplier before any action." The
+owner asked where this came from. Nothing supported it. The brief never
+says the reviewer contacts the supplier, and the app has no such step. It
+described a process that does not exist. The sentence was removed. The
+verifier's blame-word check already keeps the brief's rule.
+
+### 9. A verifier check passed by an invoice name
+
+The improvement verifier checks that a draft describes the right issue:
+a unit-price improvement must contain the word "price". A new test sent a
+draft that never described the issue, and the check still passed. The
+invoice name `wrong-price` contains "price". The verifier now removes
+invoice names before it looks for the issue word.
+
+### 10. A batch stop, found by an audit and reproduced
+
+An audit agent compared the code with the brief, which says to "Handle
+... model/API failures without stopping the batch." It found that ingest
+caught only extraction and cache errors. It then reproduced the gap: a
+throttling error or a missing credential stopped ingest at the first
+invoice, and `cli --extract` ended in a traceback. I confirmed this, then
+fixed it. The client now turns every failure of the call into one
+`ModelCallError`, ingest catches it for each invoice, and the CLI exits
+with code 2. A run with credentials switched off now saves all six
+invoices as `failed`, with the reason.

@@ -55,6 +55,17 @@ control flow. The CLI and the web view both call the same pipeline
 function and read and write the same database. The web view adds no
 reconciliation logic of its own.
 
+**Patterns, not single cases, drive the improvement.** The summary page
+counts every issue type in the saved results: unit-price, quantity and
+total differences, duplicates, missing purchase-order references and
+failed reads. It ranks them and shows the top two. An issue is called
+recurring only when two or more invoices have it. One model call phrases
+the improvements, but code chooses each conclusion, such as "Recheck unit
+prices against the purchase order before shipping.", and a verifier
+rejects blame words, dollar figures and wrong invoice names. On the seeded
+batch, the unit price differs on two invoices, one above and one below
+the agreed price. That points to a price-data check, not to wrongdoing.
+
 ## Findings
 
 **Six defects, each caught by a check.** Listed in full in README.md. Two
@@ -80,6 +91,13 @@ undercharge quietly cancel part of a real overcharge, understating what
 the business can actually recover. A guard test exists for exactly this:
 removing the positive-difference filter makes three acceptance tests fail.
 
+**A model failure used to stop the whole batch.** An audit reproduced it:
+one throttled call, or a missing AWS credential, stopped ingest at the
+first invoice with a traceback. Every failure of the call itself now
+fails only its own invoice, with the Bedrock error code in the stored
+reason. With no credentials at all, all six invoices show as `failed`
+with the reason, the batch completes, and the CLI exits with code 2.
+
 **Failed versus unresolved.** `unresolved` means the invoice was read
 successfully but carries no purchase-order reference — a fact about the
 document. `failed` means the pipeline could not process the invoice at
@@ -90,24 +108,23 @@ failure reason and classifying a failed extraction as `failed`.
 
 ## Honest limitations
 
-Six of thirty-seven rows in `docs/compliance-audit.md` are not a clean
-pass. Stated plainly, not glossed:
+Stated plainly, not glossed:
 
 - PDF invoice support was not attempted. The seeded invoices are PNG only.
 - No export route exists for the review queue or the verified
   calculations.
-- The `corrections` table is an append-only audit trail, but this was a
-  by-product of the required correction flow, not a deliberately pursued
-  history feature — there is no revision history for discrepancy notes
-  themselves, and no UI surface presents correction history as its own
-  feature.
-- The summary page states one process-improvement observation in the
-  running application, but at the time of the audit its exact wording was
-  not also restated in README.md, so a reader of the README alone would
-  not see the claim's text without starting the server.
-- The README states time spent against the project's hour budget only
-  after the compliance audit flagged its absence; confirm the current
-  README still carries that figure before submission.
+- The `corrections` table is an append-only audit trail, and each
+  field's citation on the detail page shows its correction chain. There
+  is no separate page that lists correction history. Discrepancy notes do
+  keep a version history, shown on the detail page.
+- Four questions the brief leaves open are recorded, not decided, in
+  the README's "Settled ambiguities" (entries 7 to 10): whether a
+  discrepancy is only about the billed total, a purchase order with more
+  than one receipt, a purchase order with no receipt, and the SKU. Entry
+  11 explains why no price trend is claimed: the dates are synthetic and
+  the batch is small.
+- With no AWS access, notes and improvements use their calculated text.
+  Only extraction has saved real responses to replay.
 - The two required submission items this note and its companion document
   close — the LLM usage note and this walkthrough — did not exist before
   this pass. Do not treat their presence as implying the rest of the
@@ -121,9 +138,6 @@ pass. Stated plainly, not glossed:
   realistic input format for this domain.
 - Build an export route for the review queue, so a reviewer's verified
   figures can leave the application as a file.
-- Surface correction history and note-revision history as a visible
-  feature on the detail page, rather than leaving it recoverable only by
-  querying the database directly.
-- State the process-improvement suggestion's exact text in README.md, so
-  an assessor reading only that file sees the claim without starting the
-  server.
+- Add a page that lists the correction history across all invoices.
+- Save one real response for the note and improvement calls, so the
+  model-drafted text also replays without credentials.

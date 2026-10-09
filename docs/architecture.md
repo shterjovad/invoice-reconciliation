@@ -32,6 +32,8 @@ flowchart TB
         IMAGES["tasks/invoices/images/*.png"]
         CACHE["tests/fixtures/bedrock_responses/*.json\ncommitted response cache"]
         CLIENT["extraction/client.py\nboto3 bedrock-runtime\n(built lazily)"]
+        NOTES["reconciliation/notes.py\ndiscrepancy note"]
+        IMPROVE["reconciliation/improvement.py\nprocess improvements"]
     end
 
     subgraph aws["AWS (us-east-1)"]
@@ -45,6 +47,10 @@ flowchart TB
     PIPE <-->|read/write| DB
     CLI -->|"--extract or --refresh-cache"| CLIENT
     CLIENT ==>|"SigV4, invoke_model\n(crosses the network)"| BEDROCK
+    PIPE -->|"discrepant invoice"| NOTES
+    WEB -->|"GET /summary"| IMPROVE
+    NOTES ==>|"invoke_model"| BEDROCK
+    IMPROVE ==>|"invoke_model\n(one call per page)"| BEDROCK
     CLI -->|"--from-cache"| CACHE
     CACHE -.->|replay, no network call| CLI
 
@@ -52,11 +58,21 @@ flowchart TB
     class BEDROCK aws
 ```
 
-Only one arrow crosses the network boundary: `extraction/client.py` calling
-Bedrock. The cache-replay path (`--from-cache`) stays entirely local and
-touches no AWS service. The web view never calls Bedrock directly — it
-only reads and writes SQLite through the same `pipeline` module the CLI
-uses.
+Three modules call Bedrock, for three jobs. All use the same model,
+temperature `0.0` and one forced tool call. Every prompt and schema is in
+`src/invoice_reconciliation/prompts.py`.
+
+| Call | Module | Called from | If the call fails |
+|---|---|---|---|
+| Extraction of the seven fields | `extraction/client.py` | the CLI, with `--extract` or `--refresh-cache` | `ModelCallError`; that invoice is `failed` with the reason, and the batch continues |
+| Discrepancy note | `reconciliation/notes.py` | `pipeline.ensure_discrepancy_note`: in `run_batch` for each discrepant invoice, and from the web view on a first view or after a correction | checked by `verify_note`, up to 3 attempts, then a calculated note |
+| Process improvements | `reconciliation/improvement.py` | `GET /summary` | one call for all ranked issues; each text checked by `verify_improvement`, up to 3 calls, then a prepared sentence |
+
+The cache-replay path (`--from-cache`) replays extraction with no network
+call. Notes and improvements fall back to their calculated text when AWS
+is unreachable, so the full flow still runs with no credentials. No model
+call decides a status or an amount: matching, arithmetic and
+classification run in plain Python.
 
 ## AWS services used
 
@@ -139,7 +155,7 @@ the field values.
 flowchart TD
     START["Invoice ingested"] --> Q1{"Did extraction\nsucceed?"}
 
-    Q1 -->|"No — bad image,\nExtractionError,\nCacheMissError"| FAILED["status = failed\nno amounts\nreason stored in\ninvoices.extraction_failure_reason\nextraction_failed = 1"]
+    Q1 -->|"No — bad image,\nExtractionError,\nCacheMissError,\nModelCallError"| FAILED["status = failed\nno amounts\nreason stored in\ninvoices.extraction_failure_reason\nextraction_failed = 1"]
     FAILED --> CONT1["Batch continues\nwith the next invoice"]
 
     Q1 -->|Yes| Q2{"Is po_id present,\nand does it match a\nsupplier_id + po_id pair?"}
@@ -170,8 +186,12 @@ flowchart TD
 The two failure paths, stated plainly:
 
 - **Failed extraction.** The model call did not produce usable data at
-  all — a missing image file, an `ExtractionError`, or (on replay) a
-  `CacheMissError`. `invoices.extraction_failed` is set to `1`, with a
+  all — a missing image file, an `ExtractionError`, (on replay) a
+  `CacheMissError`, or a `ModelCallError`. `extraction/client.py` raises
+  `ModelCallError` for every failure of the call itself: no credentials
+  (`NoCredentialsError`), Bedrock refusing the call (`ClientError`, for
+  example `ThrottlingException`), a timeout, or a response body that
+  cannot be read. The reason keeps the Bedrock error code. `invoices.extraction_failed` is set to `1`, with a
   stored reason. `reconciliation_results.status = 'failed'`, with no
   amounts. The batch continues to the next invoice.
 - **Unresolved.** Extraction succeeded — the model read the invoice fine —
@@ -320,7 +340,7 @@ actual code.
 | `GET /invoices/{invoice_id}/image` | `@router.get("/invoices/{invoice_id}/image")` | `invoices.image_path`, then the file on disk (path-escape checked against `tasks/invoices/images`) | Nothing | No |
 | `POST /invoices/{invoice_id}/fields/{field_name}` | `@router.post("/invoices/{invoice_id}/fields/{field_name}")` | Current field value, to validate and log the change | `corrections` (audit row), `extracted_fields.current_value`, then `reconciliation_results` (via `recalculate_one`), then re-drafts the discrepancy note | **Yes** — this is the one route that calls `pipeline.recalculate_one` |
 | `POST /invoices/{invoice_id}/note` | `@router.post("/invoices/{invoice_id}/note")` | Existing note row (404 if none) | `discrepancy_notes.current_text`, `is_reviewer_edited`, `edited_at` | **No** — deliberately. Editing a note is commentary on an already-computed result, not an input to one |
-| `GET /summary` | `@router.get("/summary", response_class=HTMLResponse)` | Status counts, the recoverable total (`SUM(difference_cents)` for discrepant invoices only), and the list of discrepant invoices with their differences | Nothing | No |
+| `GET /summary` | `@router.get("/summary", response_class=HTMLResponse)` | Status counts; the recoverable total (`SUM(difference_cents)` for discrepant invoices with a positive difference); each discrepant invoice with its difference and its source (`DifferenceSource.kind`: unit price, quantity, both, or total only); the differences grouped by source; and up to two suggested improvements, from the issue types ranked by count (`improvement.rank_issues`) and phrased in one model call | Nothing in SQLite. The improvement drafts are kept in memory on `app.state`, per set of issues, so the model is called again only when the issues change | No |
 
 Note the note editor by name: `save_note` never calls
 `pipeline.recalculate_one` and never touches `reconciliation_results` or
