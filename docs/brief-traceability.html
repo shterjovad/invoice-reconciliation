@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brief traceability — notes and corrections</title>
+<style>
+  :root {
+    --ink: #1c2128; --mute: #5b6270; --paper: #f4f5f2; --card: #ffffff;
+    --rule: #d9dcd4; --accent: #2f5d50;
+    --ok: #1f6b45;   --ok-bg: #e2f2e8;
+    --read: #8a5a12; --read-bg: #f8ecd6;
+    --no: #9a2b2b;   --no-bg: #f8e1e1;
+    --quote-bg: #f1f3ee;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e4e7e2; --mute: #a3aaa2; --paper: #15181a; --card: #1d2124;
+      --rule: #343a3d; --accent: #8cc7b2;
+      --ok: #7fd3a4;   --ok-bg: #173527;
+      --read: #f0c27a; --read-bg: #3a2c14;
+      --no: #f2a0a0;   --no-bg: #3c1c1c;
+      --quote-bg: #232829;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 3rem; background: var(--paper); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; text-wrap: balance; }
+  .sub { color: var(--mute); margin: 0 0 1.25rem; max-width: 70ch; }
+  .legend, .tally { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: 0 0 1rem; }
+  .pill {
+    display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap;
+    padding: .15rem .55rem; border-radius: 999px; font-size: .82rem; font-weight: 600;
+  }
+  .ok   { color: var(--ok);   background: var(--ok-bg); }
+  .read { color: var(--read); background: var(--read-bg); }
+  .no   { color: var(--no);   background: var(--no-bg); }
+  .tally .pill { font-size: .9rem; }
+  .table-box { overflow-x: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; min-width: 980px; }
+  th, td { text-align: left; vertical-align: top; padding: .65rem .75rem; border-bottom: 1px solid var(--rule); }
+  th {
+    font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--mute);
+    background: var(--card); position: sticky; top: 0;
+  }
+  tr:last-child td { border-bottom: 0; }
+  tr.row-ok   td:first-child { box-shadow: inset 4px 0 var(--ok); }
+  tr.row-read td:first-child { box-shadow: inset 4px 0 var(--read); }
+  tr.row-no   td:first-child { box-shadow: inset 4px 0 var(--no); }
+  td.num { color: var(--mute); font-variant-numeric: tabular-nums; width: 2.5rem; }
+  .req { font-weight: 600; }
+  blockquote {
+    margin: 0; padding: .35rem .6rem; background: var(--quote-bg); border-radius: 4px;
+    font-style: italic;
+  }
+  .sect { display: block; margin-top: .3rem; font-size: .78rem; color: var(--mute); font-style: normal; }
+  code { font: .85em ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .group td {
+    background: var(--quote-bg); font-weight: 700; font-size: .8rem; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .foot { color: var(--mute); font-size: .85rem; margin-top: 1rem; max-width: 80ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Brief traceability: notes and corrections</h1>
+  <p class="sub">Each row quotes the brief verbatim, so you can find it with Ctrl+F in
+    <code>client-ai-project-research.html</code> under <strong>Alternative B</strong>.
+    The section in grey is the heading the quote sits under.</p>
+
+  <div class="legend">
+    <span class="pill ok">✅ Implemented</span>
+    <span class="pill read">🟡 Implemented, but our reading of the brief — record it</span>
+    <span class="pill no">❌ Not implemented</span>
+  </div>
+  <div class="tally">
+    <span class="pill ok">✅ 11 implemented</span>
+    <span class="pill read">🟡 1 needs a note in the README</span>
+    <span class="pill no">❌ 2 optional, not built</span>
+  </div>
+
+  <div class="table-box">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>What the brief requires</th><th>Exact wording (section)</th>
+        <th>When it happens</th><th>How we handle it</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="group"><td colspan="6">Drafting the note</td></tr>
+
+      <tr class="row-ok">
+        <td class="num">1</td>
+        <td class="req">Give the reviewer a draft note for each exception</td>
+        <td><blockquote>“Give a reviewer the evidence and a draft discrepancy note needed to resolve an exception.”<span class="sect">Overview</span></blockquote></td>
+        <td>When reconciliation marks an invoice <strong>discrepant</strong></td>
+        <td>The batch (<code>cli.py</code>) drafts the note while it reconciles. Invoices that are not discrepant get no note.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">2</td>
+        <td class="req">Use the <em>model</em> to draft it</td>
+        <td><blockquote>“Use the model to draft a short discrepancy note from verified findings and source references.”<span class="sect">Analytics &amp; Insights</span></blockquote></td>
+        <td>During the batch; also on a correction, and on first view if no note exists yet</td>
+        <td>Bedrock (Sonnet 4.5) drafts it. If the model is unavailable, a calculated note is used, and the page always says which: <code>drafted_by</code> = model or calculated.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">3</td>
+        <td class="req">Only from <em>verified findings</em></td>
+        <td><blockquote>“…from verified findings…”<span class="sect">Analytics &amp; Insights — same line as #2</span></blockquote></td>
+        <td>Every draft, before it is stored</td>
+        <td>The model gets only the three computed figures. <code>verify_note</code> rejects the whole draft on any other figure, a wrong PO, the wrong direction or rounding. Up to 3 attempts, telling the model why, then the calculated note.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">4</td>
+        <td class="req">Cite the source records</td>
+        <td><blockquote>“…drafts a review note citing the source records.”<span class="sect">Overview — example behaviour</span></blockquote></td>
+        <td>Every draft</td>
+        <td>Verification requires the invoice number and the matched PO ID in the text. The (i) icons cite the image, the model, the PO and receipt rows, and the matching rule.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">5</td>
+        <td class="req">Do not imply wrongdoing</td>
+        <td><blockquote>“…do not treat a discrepancy as proof of wrongdoing.”<span class="sect">Analytics &amp; Insights</span></blockquote></td>
+        <td>Every draft</td>
+        <td>Verification rejects cause or blame words (overcharge, error, mistake, fraud, wrongly, deliberately and others). A test checks the calculated note against the same list.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">6</td>
+        <td class="req">Notes are only drafts</td>
+        <td><blockquote>“All notes remain drafts; accounting integrations, payment execution, authentication, and cloud deployment are unnecessary.”<span class="sect">Technical Implementation</span></blockquote></td>
+        <td>Always</td>
+        <td>No send control anywhere; the heading reads “(draft)”. The reviewer edits the note and decides what to do with it.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="group"><td colspan="6">Corrections</td></tr>
+
+      <tr class="row-ok">
+        <td class="num">7</td>
+        <td class="req">Correct a value and rerun reconciliation</td>
+        <td><blockquote>“Let a reviewer correct an extracted value, rerun reconciliation, and save the review state.”<span class="sect">Dashboard/Visualization</span></blockquote></td>
+        <td>When the reviewer saves a correction</td>
+        <td>One transaction: an append-only <code>corrections</code> row, <code>current_value</code> updated, then <code>recalculate_one</code>. The route holds no reconciliation logic.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">8</td>
+        <td class="req">Keep the original extraction visible</td>
+        <td><blockquote>“Keep the original extraction available so the correction can be understood.”<span class="sect">Dashboard/Visualization</span></blockquote></td>
+        <td>Always, after any correction</td>
+        <td><code>original_value</code> is never overwritten. A corrected field’s (i) shows the whole chain: v0 extracted → v1 → v2 (current).</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">9</td>
+        <td class="req">The correction updates the saved result and survives a restart</td>
+        <td><blockquote>“Correcting an extracted field reruns reconciliation, updates the saved result, and remains visible after restarting the app.”<span class="sect">Minimum demonstration</span></blockquote></td>
+        <td>On the correction, and on any later restart</td>
+        <td>Results, corrections and note versions are stored in SQLite; nothing is held only in memory. Checked across two separate server processes.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-read">
+        <td class="num">10</td>
+        <td class="req">What happens to the <em>note</em> after a correction</td>
+        <td><blockquote>Not stated. Follows from “from verified findings” (#3) and “updates the saved result” (#9).<span class="sect">Our reading of Analytics &amp; Insights + Minimum demonstration</span></blockquote></td>
+        <td>When a correction changes the figures</td>
+        <td><strong>Still discrepant</strong> → redraft as a new version. <strong>Reviewer had edited it</strong> → keep the edit, flag it as describing old figures. <strong>No longer discrepant</strong> → retire it: editor hidden, edits refused (409), history kept.</td>
+        <td><span class="pill read">🟡 Add to README “Settled ambiguities”</span></td>
+      </tr>
+
+      <tr class="row-ok">
+        <td class="num">11</td>
+        <td class="req">Save the review state</td>
+        <td><blockquote>“Save extracted values, findings, and review state.”<span class="sect">Data Processing</span></blockquote></td>
+        <td>Every save</td>
+        <td>Extracted fields, results, corrections, notes and note versions are all stored in SQL.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="group"><td colspan="6">Optional enhancements</td></tr>
+
+      <tr class="row-ok">
+        <td class="num">12</td>
+        <td class="req">Record reviewer decisions and note revisions</td>
+        <td><blockquote>“Add a simple record of reviewer decisions and draft-note revisions.”<span class="sect">Optional Enhancements</span></blockquote></td>
+        <td>Every note save and every redraft</td>
+        <td>Append-only <code>discrepancy_note_versions</code>. The page lists every version, newest first, each with its source and time.</td>
+        <td><span class="pill ok">✅ Implemented</span></td>
+      </tr>
+
+      <tr class="row-no">
+        <td class="num">13</td>
+        <td class="req">PDF invoices</td>
+        <td><blockquote>“Support PDF invoices in addition to images.”<span class="sect">Optional Enhancements</span></blockquote></td>
+        <td>—</td>
+        <td>Not built. The seeded invoices are PNG only.</td>
+        <td><span class="pill no">❌ Not implemented</span></td>
+      </tr>
+
+      <tr class="row-no">
+        <td class="num">14</td>
+        <td class="req">Export the queue and calculations</td>
+        <td><blockquote>“Export the review queue and verified discrepancy calculations.”<span class="sect">Optional Enhancements</span></blockquote></td>
+        <td>—</td>
+        <td>Not built. No export route exists.</td>
+        <td><span class="pill no">❌ Not implemented</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="foot">Scope: the brief’s requirements on notes and corrections, plus the optional
+    enhancements. The full row-by-row audit of the whole brief is in
+    <code>docs/compliance-audit.md</code>. The 🟡 row is built and tested; it is marked
+    because the brief does not state it, so the reading should be written down where an
+    assessor expects to find it.</p>
+</div>
+</body>
+</html>
