@@ -125,12 +125,6 @@ Stated plainly, not glossed:
   the batch is small.
 - With no AWS access, notes and improvements use their calculated text.
   Only extraction has saved real responses to replay.
-- The two required submission items this note and its companion document
-  close — the LLM usage note and this walkthrough — did not exist before
-  this pass. Do not treat their presence as implying the rest of the
-  submission was already complete; `docs/compliance-audit.md` is the
-  source of truth for what is PASS, PARTIAL, or FAIL at any given moment,
-  and it is worth a fresh read rather than a memory of its last state.
 
 ## What I would do next with more time
 

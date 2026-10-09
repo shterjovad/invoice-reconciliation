@@ -142,7 +142,7 @@ stated in each.
 ### 3. Notes said to be model-drafted were templates
 
 The brief says: "Use the model to draft a short discrepancy note from
-verified findings and source references." The compliance audit marked
+verified findings and source references." An earlier audit against the brief marked
 this row as a pass, because a note existed and it stated no cause.
 
 The owner asked whether the model really drafted the notes. A check of

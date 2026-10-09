@@ -20,8 +20,7 @@ and what was decided along the way.
 | [`docs/walkthrough.md`](docs/walkthrough.md) | Approach and findings, in a few minutes. Start here. |
 | [`docs/architecture.md`](docs/architecture.md) | Diagrams: the system, the successful flow, the two failure paths, the data model. Answers where state is stored and which AWS services are used. |
 | [`docs/demo-script.md`](docs/demo-script.md) | Step-by-step demo tables, with likely questions and honest answers. |
-| [`docs/llm-usage-note.md`](docs/llm-usage-note.md) | Tools and models used, and two worked examples of checking and correcting AI output. |
-| [`docs/compliance-audit.md`](docs/compliance-audit.md) | This project audited against the brief, row by row, including what was missing. |
+| [`docs/llm-usage-note.md`](docs/llm-usage-note.md) | Tools and models used, one instruction given to an agent, and the corrections that followed a check of AI output. |
 | [`ai-workflow/manifest.json`](ai-workflow/manifest.json) | The AI configuration used, and how to reproduce it. |
 
 ---
