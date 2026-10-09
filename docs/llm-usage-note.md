@@ -6,9 +6,9 @@ corrections that followed a check.
 
 ## Tools and models
 
-**Development.** Claude Code CLI as the orchestrating agent. It ran Claude
-Opus 5 for most of the build and Claude Opus 5.5 from 9 October 2026. Four
-custom subagents handled specialist work:
+**Development.** Claude Code CLI, version 2.1.295, as the orchestrating
+agent. It ran Claude Opus 5 for most of the build and Claude Opus 5.5 from
+9 October 2026. Four custom subagents handled specialist work:
 
 - `bedrock-extraction`: the Bedrock calls, the prompts, field parsing, and
   the response cache.
@@ -19,6 +19,26 @@ custom subagents handled specialist work:
   tests.
 
 Their definitions are in `.claude/agents/`.
+
+Other tools used with Claude Code:
+
+- **AWOS slash commands** (`.claude/commands/awos/`): the spec-driven
+  workflow. `/awos:product`, `/awos:roadmap`, `/awos:architecture`,
+  `/awos:spec`, `/awos:tech` and `/awos:tasks` wrote `context/`;
+  `/awos:hire` set up the subagents; `/awos:implement` and `/awos:verify`
+  ran the slices.
+- **Playwright MCP** (`@playwright/mcp`, user scope): browser automation,
+  to open and check the reviewer web app in a real browser. Correction 5
+  below depends on it.
+- **Project MCP servers** (`.mcp.json`): `awos-recruitment` for agent
+  setup, and `aws-knowledge-mcp-server` for AWS documentation lookups.
+- **Skills** (`.claude/skills/`): `fastapi-best-practices`,
+  `modern-python-development` and `pytest-best-practices`, general
+  conventions applied through the subagents. None was written for this
+  exercise.
+
+`ai-workflow/manifest.json` records each of these, with versions and
+status.
 
 **Application (runtime).** The app calls
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0` on AWS Bedrock, through the
@@ -77,7 +97,10 @@ Agents generated most of the source tree: the FastAPI routes and
 templates, the SQLite schema and repository layer, the reconciliation
 rules engine, the money conversion module, the Bedrock client and cache,
 the note drafting with its verification, the note version history, the
-provenance citations, and the test suite. The suite has 249 tests: 142
+provenance citations, the summary page's difference sources, the ranked
+process improvements drafted in one model call with their verifier
+(`reconciliation/improvement.py`), the `ModelCallError` handling that
+keeps one failed model call from stopping the batch, and the test suite. The suite has 249 tests: 142
 unit, 84 integration and 23 acceptance.
 
 Domain rules came from `tasks/invoices/domain.md`, not from agent
