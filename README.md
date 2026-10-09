@@ -172,6 +172,88 @@ uv run pytest -q
 
 ---
 
+## Dataset
+
+All data in `tasks/invoices/` is fictional. Each invoice image says
+"FICTIONAL INVOICE" in its header.
+
+### Supplied and added
+
+| File | Invoice | Source | What it tests |
+| --- | --- | --- | --- |
+| `clean.png` | INV-1, layout a | Supplied | A clean match to PO-1 and RC-1 |
+| `wrong-price.png` | INV-2, layout b | Supplied | Unit price $24.00 against an agreed $20.00 |
+| `duplicate.png` | INV-1, layout a | Supplied | Same supplier and invoice number as `clean` |
+| `missing-reference.png` | INV-3, layout b | Supplied | No purchase-order reference |
+| `quantity-overbill.png` | INV-4, layout a | **Added** | 8 units billed against 5 ordered and 5 received |
+| `undercharge.png` | INV-5, layout b | **Added** | Unit price $18.00 against an agreed $20.00 |
+
+The supplied files are unchanged from the starter pack: `domain.md`,
+`expected-seed-results.json`, `invoice.template.json`,
+`render_invoices.py` and the four supplied images. The two added invoices
+are appended to the end of `seed.json`. The purchase orders (PO-1, PO-2)
+and receipts (RC-1, RC-2) are the supplied ones. Nothing was added to
+them.
+
+The two added invoices fill gaps in the supplied set. Every supplied
+invoice bills 5 units, so the rule "Compare billed quantity with both
+ordered and received quantity" had no case to test. No supplied invoice
+bills less than agreed, so a negative difference had no case either.
+
+### Generation method
+
+The added images come from the supplied script, `render_invoices.py`,
+unchanged. It reads `seed.json` and draws each invoice with Pillow
+(declared in the `dev` dependency group). **No random seed is used.** The
+script has no randomness, so the same `seed.json` gives the same images.
+
+The script writes into its own folder, so it overwrites all six images.
+To check the method without touching the committed files, render into a
+copy:
+
+```
+mkdir -p /tmp/render && cp tasks/invoices/render_invoices.py tasks/invoices/seed.json /tmp/render/
+uv run python /tmp/render/render_invoices.py
+cmp /tmp/render/images/quantity-overbill.png tasks/invoices/images/quantity-overbill.png
+cmp /tmp/render/images/undercharge.png tasks/invoices/images/undercharge.png
+```
+
+Both added images come out byte-identical. The four supplied images
+differ at the byte level on this machine, probably because the starter
+pack was rendered with a different Pillow version or font. The repository
+keeps the supplied files as they were delivered.
+
+### Reference cases
+
+Seven reference cases, each calculated by hand before the product ran.
+Each file shows the working in a `_comment` field and states that the
+figures were not copied from any program output. They are stored apart
+from the product's output.
+
+| Case | Expected result | File |
+| --- | --- | --- |
+| `clean` | reconciled; expected $100.00, billed $100.00, difference $0.00 | `expected-seed-results.json` (supplied) |
+| `wrong-price` | discrepant; expected $100.00, billed $120.00, difference $20.00 | `expected-seed-results.json` (supplied) |
+| `duplicate` | duplicate; not payable | `expected-seed-results.json` (supplied) |
+| `missing-reference` | unresolved; no expected amount, no difference | `expected-seed-results.json` (supplied) |
+| `quantity-overbill` | discrepant; expected $100.00, billed $160.00, difference $60.00 | `expected-new-fixtures.json` (added) |
+| `undercharge` | discrepant; expected $100.00, billed $90.00, difference −$10.00 | `expected-new-fixtures.json` (added) |
+| Correction of `wrong-price` `total_cents`, 12000 → 10000 | discrepant before; reconciled after, difference $0.00 | `expected-correction-case.json` (added) |
+
+`--seed-check` compares the four supplied cases. The acceptance tests
+compare the two added invoices and the correction case. "The five
+required checks" below reports the results.
+
+### Assumptions
+
+- **Settled ambiguities** (below): eleven gaps in the brief or the data,
+  each with the behaviour chosen or left open, and the reason.
+- **`context/product/product-definition.md`**: each item that comes from
+  neither the supplied material nor the brief is labelled
+  **[Assumption]**.
+
+---
+
 ## The five required checks
 
 Run against the six seeded invoices, with the AWS credential chain fully
