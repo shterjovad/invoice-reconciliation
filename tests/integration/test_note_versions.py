@@ -33,7 +33,8 @@ CACHE_DIR = Path("tests/fixtures/bedrock_responses")
 MODEL_NOTE = (
     "Invoice INV-2 (purchase order PO-2) bills $120.00 against an "
     "agreed $100.00. The billed amount is $20.00 above the agreed "
-    "amount."
+    "amount. The billed unit price is $24.00 against an agreed $20.00 "
+    "per unit."
 )
 MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
@@ -447,3 +448,15 @@ def test_saving_the_current_value_is_not_a_correction(
     con.close()
     assert corrections == 0
     assert _version_count(db_path, invoice_id) == before
+
+
+def test_a_unit_price_correction_redrafts_the_note(
+    client: TestClient, db_path: Path
+) -> None:
+    """The note now states the billed unit price, so correcting it must
+    redraft the note; otherwise the note describes the old price."""
+    invoice_id = _invoice_id(db_path)
+    client.get(f"/invoices/{invoice_id}")
+    before = _version_count(db_path, invoice_id)
+    client.post(f"/invoices/{invoice_id}/fields/unit_cents", data={"value": "2300"})
+    assert _version_count(db_path, invoice_id) == before + 1

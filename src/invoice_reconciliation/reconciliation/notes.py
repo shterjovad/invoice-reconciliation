@@ -41,6 +41,7 @@ import re
 from dataclasses import dataclass, field
 
 from invoice_reconciliation.money import cents_to_display
+from invoice_reconciliation.reconciliation.difference_source import DifferenceSource
 from invoice_reconciliation.prompts import NOTE_SCHEMA, NOTE_TOOL_NAME, build_note_prompt
 
 __all__ = [
@@ -94,6 +95,7 @@ def draft_note(
     expected_cents: int,
     billed_cents: int,
     difference_cents: int,
+    source: DifferenceSource | None = None,
 ) -> str:
     """Draft a short note for a discrepant invoice from its verified figures.
 
@@ -138,12 +140,15 @@ def draft_note(
         # none exists.
         difference_sentence = "The billed amount matches the agreed amount."
 
-    return (
+    text = (
         f"Invoice {invoice_number} (matched to purchase order {po_id}) "
         f"bills ${billed_display} against an agreed ${expected_display} "
         f"for {quantity} units at ${unit_display} each. "
         f"{difference_sentence}"
     )
+    if source is not None:
+        text += " " + " ".join(source.sentences())
+    return text
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +183,7 @@ def verify_note(
     expected_cents: int,
     billed_cents: int,
     difference_cents: int,
+    source: DifferenceSource | None = None,
 ) -> str | None:
     """Check a model-drafted note against the verified figures.
 
@@ -226,6 +232,10 @@ def verify_note(
     billed_display = cents_to_display(billed_cents)
     difference_display = cents_to_display(abs(difference_cents))
     computed_amounts = {expected_display, billed_display, difference_display}
+    if source is not None:
+        # The billed and agreed unit prices are verified facts too, once the
+        # note states where the difference comes from (see difference_source).
+        computed_amounts |= source.permitted_dollar_figures()
 
     for dollar_match in _DOLLAR_AMOUNT_RE.finditer(text):
         amount = dollar_match.group(1)
@@ -235,6 +245,11 @@ def verify_note(
                 f"computed figures (${expected_display}, ${billed_display}, "
                 f"${difference_display})"
             )
+
+    if source is not None:
+        reason = _check_source(text, source)
+        if reason is not None:
+            return reason
 
     if invoice_number not in text:
         return f"did not name the matched invoice number {invoice_number!r}"
@@ -266,6 +281,42 @@ def verify_note(
     return None
 
 
+_UNIT_COUNT_RE = re.compile(r"\b(\d+)\s+units?\b")
+
+
+def _check_source(text: str, source: DifferenceSource) -> str | None:
+    """Check the note states where the difference comes from, correctly.
+
+    A price difference must name both unit prices. A quantity difference
+    must name the billed quantity. And any "<n> units" the note writes must
+    be the billed, ordered or received quantity, so a note cannot invent a
+    quantity, or claim a quantity difference with a number nobody gave it.
+    """
+    if source.price_differs:
+        for figure in (source.billed_unit_display, source.agreed_unit_display):
+            if f"${figure}" not in text:
+                return (
+                    "did not state the unit-price difference "
+                    f"(billed ${source.billed_unit_display} against agreed "
+                    f"${source.agreed_unit_display} per unit)"
+                )
+    if source.quantity_differs and f"{source.billed_quantity} units" not in text:
+        return (
+            "did not state the quantity difference "
+            f"({source.billed_quantity} units billed against "
+            f"{source.ordered_quantity} ordered)"
+        )
+    allowed = source.permitted_unit_counts()
+    for match in _UNIT_COUNT_RE.finditer(text):
+        count = int(match.group(1))
+        if count not in allowed:
+            return (
+                f"stated {count} units, which is not the billed, ordered or "
+                "received quantity"
+            )
+    return None
+
+
 def _build_tool_call_body(
     *,
     invoice_number: str,
@@ -276,6 +327,7 @@ def _build_tool_call_body(
     billed_cents: int,
     difference_cents: int,
     rejection_reason: str | None,
+    source: DifferenceSource | None = None,
 ) -> dict:
     """Build the Bedrock ``invoke_model`` request body for one drafting attempt.
 
@@ -293,6 +345,7 @@ def _build_tool_call_body(
         expected_cents=expected_cents,
         billed_cents=billed_cents,
         difference_cents=difference_cents,
+        source=source,
         rejection_reason=rejection_reason,
     )
 
@@ -344,6 +397,7 @@ def draft_discrepancy_note(
     billed_cents: int,
     difference_cents: int,
     use_model: bool = True,
+    source: DifferenceSource | None = None,
 ) -> DraftedNote:
     """Draft a discrepancy note, preferring a verified model draft.
 
@@ -384,6 +438,7 @@ def draft_discrepancy_note(
         expected_cents=expected_cents,
         billed_cents=billed_cents,
         difference_cents=difference_cents,
+        source=source,
     )
 
     if not use_model:
@@ -430,6 +485,7 @@ def draft_discrepancy_note(
             expected_cents=expected_cents,
             billed_cents=billed_cents,
             difference_cents=difference_cents,
+            source=source,
             rejection_reason=rejection_reason,
         )
         try:
@@ -457,6 +513,7 @@ def draft_discrepancy_note(
             expected_cents=expected_cents,
             billed_cents=billed_cents,
             difference_cents=difference_cents,
+            source=source,
         )
         if rejection_reason is None:
             return DraftedNote(

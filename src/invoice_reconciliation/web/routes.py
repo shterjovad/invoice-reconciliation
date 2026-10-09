@@ -747,8 +747,9 @@ def _note_inputs(conn, invoice_id: int) -> tuple:
 
     These are the inputs ``prompts.build_note_prompt`` and
     ``notes.draft_note`` draw on: the status, the invoice number, the
-    matched purchase order, and the expected, billed and difference
-    amounts. If a correction leaves all of them unchanged, the stored note
+    matched purchase order, the expected, billed and difference amounts,
+    and the billed unit price and quantity the note's source sentence
+    states. If a correction leaves all of them unchanged, the stored note
     still describes the invoice correctly and must not be redrafted.
     """
     result = repository.get_reconciliation_result(conn, invoice_id=invoice_id)
@@ -762,6 +763,10 @@ def _note_inputs(conn, invoice_id: int) -> tuple:
         result["expected_cents"],
         result["billed_cents"],
         result["difference_cents"],
+        # The note also states where the difference comes from: the billed
+        # unit price and quantity (see reconciliation/difference_source.py).
+        fields.get("unit_cents"),
+        fields.get("quantity"),
     )
 
 

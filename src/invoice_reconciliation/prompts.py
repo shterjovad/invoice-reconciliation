@@ -34,6 +34,7 @@ because both look arbitrary without the history:
 from __future__ import annotations
 
 from invoice_reconciliation.money import cents_to_display
+from invoice_reconciliation.reconciliation.difference_source import DifferenceSource
 
 __all__ = [
     "EXTRACTION_PROMPT",
@@ -205,6 +206,7 @@ def build_note_prompt(
     billed_cents: int,
     difference_cents: int,
     rejection_reason: str | None,
+    source: DifferenceSource | None = None,
 ) -> str:
     """Build the note-drafting prompt text for one attempt.
 
@@ -225,6 +227,17 @@ def build_note_prompt(
     forbidding it was a self-contradicting prompt, and the model used it
     on roughly half of first attempts, forcing a retry. Since removing it,
     all three discrepant invoices draft successfully on attempt 1.
+
+    **The unit price is now allowed, but only through ``source``.** The
+    brief asks to "Summarize the supported price or quantity differences
+    and their amounts", so the note states where the difference comes
+    from. When ``source`` is given, the billed and agreed unit prices are
+    listed as permitted figures and the exact fact to state is given, and
+    ``notes.verify_note`` permits the same figures from the same
+    ``DifferenceSource``. The earlier failure came from a figure that was
+    listed and then forbidden; here the prompt and the verifier read one
+    list, so that contradiction cannot recur. Without ``source`` the old
+    rule stands: no per-unit price.
     """
     expected_display = cents_to_display(expected_cents)
     billed_display = cents_to_display(billed_cents)
@@ -256,15 +269,8 @@ def build_note_prompt(
             if direction is not None
             else "  difference               none\n"
         )
-        # The unit price is deliberately withheld. It is a true fact about
-        # the invoice but it is not one of the three verified totals, so a
-        # note mentioning it fails verification. Supplying it and then
-        # forbidding it made the model use it on roughly half of first
-        # attempts — a self-contradicting prompt, not a model error.
-        + "\nDo not write any other dollar amount. In particular do not "
-        "write a per-unit price: you have not been given one, so do not "
-        "state or derive one.\n"
-        "\nRules:\n"
+        + _source_block(source)
+        + "\nRules:\n"
         "- State what was billed against what was agreed, and the "
         "difference (or that the amounts match).\n"
         "- Name both the invoice number and the purchase-order id, exactly "
@@ -281,8 +287,14 @@ def build_note_prompt(
         '  "Invoice INV-9, matched to purchase order PO-7, bills $75.00 '
         'against an agreed $50.00. The billed amount is $25.00 above the '
         'agreed amount."\n'
-        "Note that this example states three dollar figures and no "
-        "per-unit price.\n"
+        + (
+            "Note that this example states three dollar figures and no "
+            "per-unit price.\n"
+            if source is None
+            else "For the same invoice, if its unit price differed, the "
+            "paragraph would continue: \"The billed unit price is $15.00 "
+            "against an agreed $10.00 per unit.\"\n"
+        )
     )
     if rejection_reason is not None:
         prompt += (
@@ -292,3 +304,39 @@ def build_note_prompt(
         )
 
     return prompt
+
+
+def _source_block(source: DifferenceSource | None) -> str:
+    """The part of the note prompt that says where the difference comes from.
+
+    Without a source, keep the earlier rule: no per-unit price at all (see
+    build_note_prompt's docstring for why). With one, list the unit prices
+    as permitted figures and give the exact facts to state.
+    """
+    if source is None:
+        return (
+            "\nDo not write any other dollar amount. In particular do not "
+            "write a per-unit price: you have not been given one, so do not "
+            "state or derive one.\n"
+        )
+    received = (
+        f"  received quantity        {source.received_quantity} units\n"
+        if source.received_quantity is not None
+        else ""
+    )
+    facts = "\n".join(f"  {sentence}" for sentence in source.sentences())
+    return (
+        "\nYou may also write these two per-unit prices, and no other "
+        "dollar amount:\n"
+        f"  billed unit price        ${source.billed_unit_display}\n"
+        f"  agreed unit price        ${source.agreed_unit_display}\n"
+        "\nAnd these quantities:\n"
+        f"  billed quantity          {source.billed_quantity} units\n"
+        f"  ordered quantity         {source.ordered_quantity} units\n"
+        + received
+        + "\nState where the difference comes from by including these "
+        "facts, with these exact figures:\n"
+        + facts
+        + "\nState them as facts only. Do not say why they differ and do "
+        "not suggest what any figure should be.\n"
+    )

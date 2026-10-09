@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from invoice_reconciliation.db import repository
 from invoice_reconciliation.money import MoneyFormatError
 from invoice_reconciliation.reconciliation import matcher, rules
+from invoice_reconciliation.reconciliation.difference_source import difference_source
 from invoice_reconciliation.reconciliation.notes import draft_discrepancy_note, draft_note
 
 __all__ = [
@@ -286,6 +287,23 @@ def ensure_discrepancy_note(
     quantity = int(purchase_order["quantity"]) if purchase_order is not None else 0
     unit_cents = int(purchase_order["unit_cents"]) if purchase_order is not None else 0
 
+    # Where the difference comes from: the invoice's own billed unit price
+    # and quantity set against the PO and the receipt. The brief asks to
+    # "Summarize the supported price or quantity differences and their
+    # amounts". A missing figure gives no source, never a guessed one.
+    receipt = (
+        repository.get_receipt_for_po(conn, po_id=result_row["matched_po_id"])
+        if result_row["matched_po_id"] is not None
+        else None
+    )
+    source = difference_source(
+        billed_unit_cents=_as_int(current_fields.get("unit_cents")),
+        agreed_unit_cents=unit_cents if purchase_order is not None else None,
+        billed_quantity=_as_int(current_fields.get("quantity")),
+        ordered_quantity=quantity if purchase_order is not None else None,
+        received_quantity=int(receipt["quantity"]) if receipt is not None else None,
+    )
+
     try:
         drafted = draft_discrepancy_note(
             invoice_number=invoice_number,
@@ -295,6 +313,7 @@ def ensure_discrepancy_note(
             expected_cents=result_row["expected_cents"],
             billed_cents=result_row["billed_cents"],
             difference_cents=result_row["difference_cents"],
+            source=source,
             use_model=use_model,
         )
     except Exception as exc:  # noqa: BLE001 - one bad note must not cost the batch
@@ -320,6 +339,7 @@ def ensure_discrepancy_note(
             expected_cents=result_row["expected_cents"],
             billed_cents=result_row["billed_cents"],
             difference_cents=result_row["difference_cents"],
+            source=source,
         )
         repository.upsert_discrepancy_note(
             conn,
@@ -428,3 +448,13 @@ def run_batch(
             )
         )
     return outcomes
+
+
+def _as_int(value: str | None) -> int | None:
+    """Parse an extracted integer field, or ``None`` if absent or not a whole number."""
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        return None
