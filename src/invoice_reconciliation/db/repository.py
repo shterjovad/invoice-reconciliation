@@ -541,6 +541,11 @@ def upsert_discrepancy_note(
     *,
     invoice_id: int,
     drafted_text: str,
+    drafted_by: str = "calculated",
+    model_id: str | None = None,
+    drafted_at: str | None = None,
+    attempts: int | None = None,
+    rejection_reasons: str | None = None,
 ) -> None:
     """Write the drafted note for a discrepant invoice.
 
@@ -554,6 +559,21 @@ def upsert_discrepancy_note(
     side by side" shape ``extracted_fields`` uses for original/current, so
     the draft stays recoverable even after a reviewer edits the note.
     ``edited_at`` starts ``NULL`` since no edit has happened yet.
+    ``edit_superseded`` also starts ``0`` — this call always replaces the
+    whole row (a fresh draft has no reviewer edit yet to mark stale); the
+    one caller that must *not* reset it is
+    ``mark_discrepancy_note_edit_superseded``, used instead of this
+    function when a correction lands on top of an existing reviewer edit
+    (see that function's docstring).
+
+    ``drafted_by`` records how ``drafted_text`` was produced — ``"model"``
+    only when a verified model draft was stored, ``"calculated"``
+    (the default) otherwise. ``model_id``/``drafted_at``/``attempts``/
+    ``rejection_reasons`` are the provenance for a model draft and stay
+    ``None`` on the calculated path — there is no model call to describe.
+    ``rejection_reasons`` is stored as the JSON-encoded list the caller
+    supplies (or ``None``); this function does not interpret its
+    contents.
 
     Overwriting on every recompute means a redraft (e.g. after a field
     correction changes the figures) replaces the previous draft text. A
@@ -564,11 +584,44 @@ def upsert_discrepancy_note(
     conn.execute(
         """
         INSERT OR REPLACE INTO discrepancy_notes (
-            invoice_id, drafted_text, current_text, is_reviewer_edited, edited_at
+            invoice_id, drafted_text, current_text, is_reviewer_edited,
+            edited_at, drafted_by, model_id, drafted_at, attempts,
+            rejection_reasons, edit_superseded
         )
-        VALUES (?, ?, ?, 0, NULL)
+        VALUES (?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, 0)
         """,
-        (invoice_id, drafted_text, drafted_text),
+        (
+            invoice_id,
+            drafted_text,
+            drafted_text,
+            drafted_by,
+            model_id,
+            drafted_at,
+            attempts,
+            rejection_reasons,
+        ),
+    )
+
+
+def mark_discrepancy_note_edit_superseded(
+    conn: sqlite3.Connection, *, invoice_id: int
+) -> None:
+    """Flag a reviewer-edited note as written against figures that have
+    since been recalculated.
+
+    Called instead of ``upsert_discrepancy_note`` when a correction
+    recalculates an invoice's figures while its ``discrepancy_notes`` row
+    is ``is_reviewer_edited = 1`` — the one case where a human edit must
+    never be overwritten (``technical-considerations.md``: "a human edit
+    is the most trusted text. Never overwrite it"). This updates only
+    ``edit_superseded``; ``current_text`` (the reviewer's own words),
+    ``drafted_text`` (the draft it was written against), and every other
+    column are left exactly as they were. A no-op if no note row exists
+    for this invoice (nothing to flag).
+    """
+    conn.execute(
+        "UPDATE discrepancy_notes SET edit_superseded = 1 WHERE invoice_id = ?",
+        (invoice_id,),
     )
 
 
@@ -582,7 +635,9 @@ def get_discrepancy_note(
     """
     cursor = conn.execute(
         """
-        SELECT invoice_id, drafted_text, current_text, is_reviewer_edited, edited_at
+        SELECT invoice_id, drafted_text, current_text, is_reviewer_edited,
+               edited_at, drafted_by, model_id, drafted_at, attempts,
+               rejection_reasons, edit_superseded
         FROM discrepancy_notes
         WHERE invoice_id = ?
         """,

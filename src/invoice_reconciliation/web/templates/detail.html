@@ -142,7 +142,17 @@
         <h2>Discrepancy note (draft)</h2>
         <p class="note-hint">
             A drafted note for your own reference. Edit it and use it however you decide.
+            <span class="note-provenance">
+                {% if note.drafted_by == "model" %}model-drafted{% else %}calculated{% endif %}
+                {{ provenance_icon(note.note_citation) }}
+            </span>
         </p>
+        {% if note.edit_superseded %}
+        <p class="note-superseded">
+            A correction changed this invoice's figures after this note was edited.
+            Your edit is kept as written; it may now describe out-of-date figures.
+        </p>
+        {% endif %}
         <form method="post" action="/invoices/{{ invoice.invoice_id }}/note">
             <textarea name="text" rows="4" cols="80">{{ note.current_text }}</textarea>
             <br>

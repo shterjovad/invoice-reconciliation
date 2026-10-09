@@ -112,13 +112,40 @@ DDL_STATEMENTS: tuple[str, ...] = (
     )
     """,
     # One row per discrepant invoice: the drafted note and any reviewer edit.
+    #
+    # drafted_by records how drafted_text was produced: 'model' when a
+    # verified model draft was stored, 'calculated' when the model was
+    # skipped, never called, or every attempt failed verification (the
+    # pure notes.draft_note fallback). model_id/drafted_at/attempts/
+    # rejection_reasons are all nullable and only ever populated on the
+    # 'model' path (model_id is also null on 'calculated', since no model
+    # produced the stored text). Added additively, with a NOT NULL default
+    # of 'calculated' on drafted_by so a row written before this column
+    # existed (there are none yet, but the pattern follows
+    # extraction_failure_reason's additive precedent) still reads back a
+    # valid value instead of NULL.
     """
     CREATE TABLE IF NOT EXISTS discrepancy_notes (
         invoice_id        INTEGER PRIMARY KEY REFERENCES invoices (invoice_id),
         drafted_text      TEXT    NOT NULL,
         current_text      TEXT    NOT NULL,
         is_reviewer_edited INTEGER NOT NULL,
-        edited_at         TEXT
+        edited_at         TEXT,
+        drafted_by        TEXT    NOT NULL DEFAULT 'calculated'
+                               CHECK (drafted_by IN ('model', 'calculated')),
+        model_id          TEXT,
+        drafted_at        TEXT,
+        attempts          INTEGER,
+        rejection_reasons TEXT,
+        -- Set when a correction recalculates the invoice's figures while a
+        -- reviewer's edited note is on file: the edit is never overwritten
+        -- (technical-considerations.md's "a human edit is the most trusted
+        -- text"), but the figures it describes may now be stale. 0 for
+        -- every row by default, including every model/calculated draft
+        -- that has no reviewer edit at all; set to 1 only on the one
+        -- codepath that detects a correction landing on top of an
+        -- existing reviewer edit.
+        edit_superseded   INTEGER NOT NULL DEFAULT 0
     )
     """,
 )

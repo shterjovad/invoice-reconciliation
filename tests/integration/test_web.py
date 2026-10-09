@@ -12,9 +12,11 @@ exercises the one pipeline through the queue route, not a stand-in.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -76,7 +78,7 @@ def db_path(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def client(db_path: Path) -> TestClient:
-    app = create_app(db_path=db_path)
+    app = create_app(db_path=db_path, draft_notes_with_model=False)
     return TestClient(app)
 
 
@@ -307,7 +309,7 @@ def failed_client(tmp_path: Path, monkeypatch) -> TestClient:
     conn.commit()
     conn.close()
 
-    app = create_app(db_path=db_path)
+    app = create_app(db_path=db_path, draft_notes_with_model=False)
     return TestClient(app)
 
 
@@ -365,7 +367,7 @@ def test_image_route_404s_for_a_path_escaping_the_base_directory(
         invoice_row = repository.get_invoice_by_file_id(conn, file_id="clean")
         invoice_id = invoice_row["invoice_id"]
 
-    app = create_app(db_path=db_path)
+    app = create_app(db_path=db_path, draft_notes_with_model=False)
     escaping_client = TestClient(app)
     response = escaping_client.get(f"/invoices/{invoice_id}/image")
     assert response.status_code == 404
@@ -678,11 +680,12 @@ def test_corrected_field_still_shows_its_own_citation_with_previous_value(
     assert "Corrected by reviewer on" in corrected_citation
     assert "Previous value: 'CAB-1'" in corrected_citation
 
-    # Exactly one row citation beyond the four base icons (Original
-    # header, Current header, matched PO, matched receipt) — the
-    # correction adds one icon, not one per cell.
+    # Exactly one row citation beyond the five base icons (Original
+    # header, Current header, matched PO, matched receipt, and — since
+    # wrong-price is discrepant — the discrepancy note's drafted-by
+    # citation) — the correction adds one icon, not one per cell.
     icon_count = body.count('class="prov"')
-    assert icon_count == 5, f"expected exactly 5 provenance icons after one correction, found {icon_count}"
+    assert icon_count == 6, f"expected exactly 6 provenance icons after one correction, found {icon_count}"
 
 
 def _all_invoice_ids(client: TestClient) -> dict[str, int]:
@@ -716,3 +719,78 @@ def test_every_link_on_the_detail_page_resolves(client: TestClient) -> None:
                 continue
             response = client.get(href)
             assert response.status_code != 404, f"{href} (from {file_id}'s page) 404s"
+
+
+# ---------------------------------------------------------------------------
+# The discrepancy note's drafted-by provenance on the detail page.
+#
+# The default `client` fixture builds its app with draft_notes_with_model
+# left at its default (False), so every test above this point already
+# proves the calculated path's provenance renders correctly (every note
+# shown so far was drafted calculated). These two tests cover the model
+# path explicitly, mocking the one seam
+# (invoice_reconciliation.extraction.client.build_client) so neither
+# makes a live call.
+# ---------------------------------------------------------------------------
+
+
+def _fake_note_body(note_text: str) -> MagicMock:
+    payload = {
+        "content": [
+            {"type": "tool_use", "name": "record_discrepancy_note", "input": {"note": note_text}}
+        ]
+    }
+    body = MagicMock()
+    body.read.return_value = json.dumps(payload).encode("utf-8")
+    return body
+
+
+def test_calculated_note_shows_the_calculated_provenance_on_the_detail_page(
+    client: TestClient,
+) -> None:
+    """The default client never enables model drafting — its note's
+    provenance must say so plainly, not leave the path unstated."""
+    invoice_id = _invoice_id_for(client, "wrong-price")
+    body = client.get(f"/invoices/{invoice_id}").text
+
+    assert "calculated" in body.lower()
+    titles = _tooltip_titles(body)
+    note_citation = next(t for t in titles if "no model was used" in t.lower())
+    assert "calculated" in note_citation.lower()
+
+
+def test_model_drafted_note_shows_the_model_provenance_on_the_detail_page(
+    db_path: Path,
+) -> None:
+    """A verified model draft, once stored, shows which model drafted it —
+    not just that a model was used. Mocks the one Bedrock call this note
+    would make; no live call happens in this test."""
+    good_draft = (
+        "Invoice INV-2 (purchase order PO-2) bills $120.00 against an "
+        "agreed $100.00 for 5 units at $20.00 each. The billed amount is "
+        "$20.00 above the agreed amount."
+    )
+    fake_client = MagicMock()
+    fake_client.invoke_model.return_value = {"body": _fake_note_body(good_draft)}
+
+    app = create_app(db_path=db_path, draft_notes_with_model=True)
+    model_client = TestClient(app)
+
+    with patch(
+        "invoice_reconciliation.extraction.client.build_client", return_value=fake_client
+    ):
+        invoice_id = _invoice_id_for(model_client, "wrong-price")
+        body = model_client.get(f"/invoices/{invoice_id}").text
+
+    assert "model-drafted" in body.lower()
+    titles = _tooltip_titles(body)
+    note_citation = next(t for t in titles if "drafted by the model" in t.lower())
+    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in note_citation
+    fake_client.invoke_model.assert_called_once()
+
+    # Lazy and persistent: a second view must not call the model again.
+    with patch(
+        "invoice_reconciliation.extraction.client.build_client", return_value=fake_client
+    ):
+        model_client.get(f"/invoices/{invoice_id}")
+    fake_client.invoke_model.assert_called_once()

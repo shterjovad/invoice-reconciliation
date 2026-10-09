@@ -62,7 +62,8 @@ def db_path(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def client(db_path: Path) -> TestClient:
-    app = create_app(db_path=db_path)
+    # draft_notes_with_model=False: this suite must never reach the network.
+    app = create_app(db_path=db_path, draft_notes_with_model=False)
     return TestClient(app)
 
 
@@ -267,3 +268,68 @@ def test_unknown_invoice_id_is_404(client: TestClient) -> None:
         follow_redirects=False,
     )
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# A reviewer's note edit survives a correction that recalculates the
+# invoice's figures — "a human edit is the most trusted text. Never
+# overwrite it" (technical-considerations.md).
+#
+# This correction changes total_cents to 13000 (not the fixture's 10000),
+# a value that keeps wrong-price discrepant with a *different* difference
+# (13000 - 10000 = 3000) rather than resolving it to reconciled — the
+# edit-survives behavior only has something to prove while the invoice is
+# still discrepant and still has a note to show.
+# ---------------------------------------------------------------------------
+
+
+def test_a_reviewer_note_edit_survives_a_recalculation(
+    client: TestClient, db_path: Path
+) -> None:
+    # @regression
+    invoice_id = _invoice_id_for(db_path, INVOICE_FILE_ID)
+
+    # View once to draft the note, then edit it in the reviewer's own words.
+    client.get(f"/invoices/{invoice_id}")
+    edited_text = "Reviewer note: following up with the supplier directly."
+    response = client.post(
+        f"/invoices/{invoice_id}/note", data={"text": edited_text}, follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    with connect(db_path) as conn:
+        before_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+    assert before_note["current_text"] == edited_text
+    assert bool(before_note["is_reviewer_edited"]) is True
+    assert bool(before_note["edit_superseded"]) is False
+
+    # A correction that changes the figures but keeps the invoice
+    # discrepant (13000, not the fixture's 10000 which resolves it).
+    response = client.post(
+        f"/invoices/{invoice_id}/fields/total_cents",
+        data={"value": "13000"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    result = _result(db_path, invoice_id)
+    assert result["status"] == "discrepant"
+    assert result["difference_cents"] == 3000
+
+    with connect(db_path) as conn:
+        after_note = repository.get_discrepancy_note(conn, invoice_id=invoice_id)
+
+    # The reviewer's exact words are untouched by the recalculation...
+    assert after_note["current_text"] == edited_text
+    assert bool(after_note["is_reviewer_edited"]) is True
+    # ...and the previously-drafted text (what the edit was written
+    # against) is also untouched, not silently redrafted to match 13000.
+    assert after_note["drafted_text"] == before_note["drafted_text"]
+    # ...but the note is now flagged as describing superseded figures, so
+    # the reviewer can tell and decide whether to redraft.
+    assert bool(after_note["edit_superseded"]) is True
+
+    # The detail page surfaces this, not just the database row.
+    detail_body = client.get(f"/invoices/{invoice_id}").text
+    assert edited_text in detail_body
+    assert "superseded" in detail_body.lower() or "out-of-date" in detail_body.lower()

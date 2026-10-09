@@ -131,7 +131,8 @@ def db_path(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def client(db_path: Path) -> TestClient:
-    return TestClient(create_app(db_path=db_path))
+    # draft_notes_with_model=False: acceptance runs stay offline.
+    return TestClient(create_app(db_path=db_path, draft_notes_with_model=False))
 
 
 def _invoice_id_for(db_path: Path, file_id: str) -> int:

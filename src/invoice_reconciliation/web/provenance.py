@@ -32,6 +32,7 @@ __all__ = [
     "matched_po_citation",
     "matched_receipt_citation",
     "no_match_citation",
+    "discrepancy_note_citation",
 ]
 
 Citation = dict[str, object]
@@ -180,6 +181,41 @@ def matched_receipt_citation(
         f"Source: {seed_path}.",
         f"Received quantity: {received_quantity}.",
     ]
+    return {"lines": lines, "link": None}
+
+
+def discrepancy_note_citation(
+    *,
+    drafted_by: str,
+    model_id: str | None,
+    drafted_at: str | None,
+    attempts: int | None,
+    rejection_reasons: list[str] | None,
+) -> Citation:
+    """Citation for the discrepancy note's drafted text: which path
+    produced it, and (on the model path) the model and attempt count.
+
+    ``drafted_by`` is ``"model"`` or ``"calculated"`` (see
+    ``reconciliation.notes.DraftedNote``). On the model path, names the
+    model id and when it drafted; a calculated note states plainly that
+    no model was used — never silent about which path a reviewer is
+    reading. ``rejection_reasons`` (present only when at least one attempt
+    was rejected before success, or when every attempt failed and the
+    note fell back to calculated) is listed so a reviewer can see what the
+    model got wrong, not just that it was retried.
+    """
+    if drafted_by == "model":
+        lines = [f"Drafted by the model ({model_id})."]
+        if drafted_at is not None:
+            lines.append(f"Drafted: {drafted_at}.")
+        if attempts is not None and attempts > 1:
+            lines.append(f"Accepted on attempt {attempts} of up to 3.")
+    else:
+        lines = ["Drafted by the calculated (non-model) fallback — no model was used."]
+
+    if rejection_reasons:
+        lines.append("Rejected attempt(s): " + "; ".join(rejection_reasons))
+
     return {"lines": lines, "link": None}
 
 
