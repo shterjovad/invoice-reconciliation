@@ -174,6 +174,12 @@ def test_unknown_status_returns_an_empty_list_not_a_500(client: TestClient) -> N
     assert "No invoices match this filter" in rows
 
 
+def test_root_redirects_to_the_queue(client: TestClient) -> None:
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/invoices"
+
+
 # ---------------------------------------------------------------------------
 # Slice 10: the invoice detail page, GET /invoices/{id}
 # ---------------------------------------------------------------------------

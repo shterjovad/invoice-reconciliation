@@ -144,6 +144,12 @@ def _row_to_view(row) -> dict[str, object]:
     }
 
 
+@router.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """Send the bare server address to the queue, the app's start page."""
+    return RedirectResponse(url="/invoices")
+
+
 @router.get("/invoices", response_class=HTMLResponse)
 def list_invoices(request: Request, status: str | None = None) -> HTMLResponse:
     """The invoice queue: every invoice with its status and main figures.
