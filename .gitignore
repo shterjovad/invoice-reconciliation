@@ -19,3 +19,6 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Playwright MCP browser output
+.playwright-mcp/
